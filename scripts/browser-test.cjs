@@ -1,0 +1,107 @@
+const {spawn}=require('node:child_process');
+const fs=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'..'),out=path.join(root,'dist','previews');fs.mkdirSync(out,{recursive:true});
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{
+  const watchdog=setTimeout(()=>{console.error('Browser verification timed out');process.exit(1);},120000);
+  const executable=process.env.CHROME_PATH||'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+  const browser=spawn(executable,['--headless','--disable-gpu','--no-first-run','--remote-debugging-port=9347',`--user-data-dir=${path.join(root,'.browser-profile')}`,'about:blank'],{stdio:'ignore',windowsHide:true});
+  let ws;const errors=[];let passed=0;
+  try{
+    let targets;for(let i=0;i<50;i++){try{targets=await(await fetch('http://127.0.0.1:9347/json')).json();break;}catch{await sleep(150);}}
+    assert.ok(targets,'Chrome must start');ws=new WebSocket(targets.find(t=>t.type==='page').webSocketDebuggerUrl);await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+    let seq=0;const pending=new Map();ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.id){const p=pending.get(m.id);pending.delete(m.id);m.error?p.reject(m.error):p.resolve(m.result);}if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);};
+    const send=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,{resolve,reject});ws.send(JSON.stringify({id,method,params}));});
+    const evaluate=async expression=>{const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value;};
+    const expect=async(expression,expected,msg)=>{assert.deepEqual(await evaluate(expression),expected,msg);passed++;};
+    const click=async selector=>{assert.ok(await evaluate(`!!document.querySelector(${JSON.stringify(selector)})`),selector);await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);await sleep(50);};
+    const fill=async(data)=>{await evaluate(`{const f=document.querySelector('#overlay form');for(const [k,v]of Object.entries(${JSON.stringify(data)})){const el=f.elements[k];if(el.type==='checkbox')el.checked=v;else el.value=v;} f.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}`);await sleep(80);};
+    const screenshot=async name=>{
+      await evaluate('document.querySelector("#toast").classList.remove("visible")');await sleep(220);
+      await evaluate('document.fonts.ready');
+      await expect('document.documentElement.scrollWidth <= innerWidth',true,'No horizontal overflow');
+      const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(out,name+'.png'),Buffer.from(r.data,'base64'));
+    };
+    await send('Page.enable');await send('Runtime.enable');await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await send('Page.navigate',{url:'http://127.0.0.1:4177/'});for(let i=0;i<60;i++){if(await evaluate('!!window.shiji'))break;await sleep(80);}
+    await evaluate('localStorage.clear();window.shiji.setState(HubCore.empty())');
+    await screenshot('01-empty');
+    await click('[data-action="add-goal"]');await screenshot('02-create-goal');
+    await fill({name:'自由基金',amount:'200000',deadline:'2029-12-31',scope:'all'});
+    await expect('shiji.state.goals.length',1,'Goal created');
+    await click('[data-page="goals"]');await click('[data-action="add-goal"]');
+    await fill({name:'股票长期积累',amount:'100000',deadline:'2029-01-01',scope:'stock'});
+    await expect('shiji.state.goals.length',2,'Multiple goals');
+    await click('[data-page="home"]');await click('[data-action="open-accounts"]');
+    for(const a of [{name:'股票账户',balance:'32000',category:'stock'}, {name:'债券账户',balance:'24000',category:'bond'}, {name:'储蓄卡',balance:'30000',category:'cash'}, {name:'不计入的信用卡',balance:'-5000',category:'other',exclude:true}]){
+      await click('[data-action="manual-asset"]');await fill(a);
+    }
+    await expect('HubCore.totals(shiji.state).total',86000,'Only eligible balances count');
+    await expect('HubCore.goalMetrics(shiji.state,shiji.state.goals[1]).current',32000,'Category-specific goal');
+    await screenshot('03-accounts');
+    await click('[data-page="home"]');await click('[data-action="assets-allocation"]');await click('[data-action="allocation-edit"]');
+    await fill({mode:'percent',stock:'40',bond:'20',cash:'20',other:'0'});
+    await expect('document.querySelector(".form-error").textContent.includes("100%")',true,'Invalid percentages rejected');
+    await fill({mode:'percent',stock:'40',bond:'30',cash:'30',other:'0'});
+    await expect('document.querySelector("#overlay").innerHTML','', 'Valid allocation saved');
+    await screenshot('04-allocation');
+    await click('[data-action="allocation-edit"]');await fill({mode:'amount',stock:'40000',bond:'30000',cash:'30000',other:'0'});
+    await expect('HubCore.allocation(shiji.state)[0].gap',8000,'Fixed amount target gap');
+    await click('[data-action="categories"]');await click('[data-action="category-edit"]');await fill({name:'黄金',color:'#ba975c'});
+    await expect('shiji.state.categories.some(c=>c.name==="黄金")',true,'Custom asset categories');await click('[data-action="close"]');
+    await click('[data-page="home"]');await click('[data-page="goals"]');await screenshot('05-goals');await click('.goal-card');await screenshot('06-goal-details');await click('[data-action="edit-goal"]');
+    await fill({name:'自由基金 · 更新',amount:'250000',deadline:'2030-01-01',scope:'all'});
+    await expect('shiji.state.goals.some(g=>g.name==="自由基金 · 更新"&&g.amount===250000)',true,'Editing a goal persists');
+    await click('[data-page="settings"]');await click('[data-action="page-settings"][data-id="todos"]');
+    await click('[data-action="toggle-page-option"][data-module="todos"][data-option="dates"]');
+    await expect('shiji.state.pageOptions.todos.dates',false,'Todo date visibility can be configured');
+    await screenshot('14-module-settings');
+    await click('[data-page="settings"]');
+    await expect('Array.from(document.querySelectorAll(".bottom-nav .nav-item")).map(x=>x.textContent.trim())',["资产","待办","设置"],'Navigation has two pages and settings');
+    await expect('!!document.querySelector("[data-page=tools]")',false,'No features page');
+    await screenshot('07-settings');
+    await click('[data-action="check-update"]');
+    await expect('document.querySelector(".update-status").textContent.includes("浏览器仅供界面预览")',true,'Update check requires native app');
+    await click('[data-action="close"]');
+    await click('[data-action="page-settings"][data-id="wealth"]');
+    await click('[data-action="toggle-page-option"][data-module="wealth"][data-option="allocation"]');
+    await expect('shiji.state.pageOptions.wealth.allocation',false,'Asset page allocation visibility configured');
+    await click('[data-page="home"]');
+    await expect('!!document.querySelector("[data-action=assets-allocation]")',false,'Hidden asset module absent');
+    await click('[data-page="settings"]');await click('[data-action="page-settings"][data-id="wealth"]');await click('[data-action="toggle-page-option"][data-module="wealth"][data-option="allocation"]');
+    await click('[data-page="todos"]');await click('[data-action="add-task"]');
+    await fill({text:'复盘本月资产配置',deadline:'2027-01-01'});await expect('shiji.state.tasks.length',1,'Todo created');
+    await expect('!!document.querySelector(".task-row .task-text small")',false,'Hidden todo dates are absent from the page');
+    await click('[data-action="toggle-task"]');await expect('shiji.state.tasks[0].done',true,'Todo completion');await screenshot('08-todos');
+    await click('[data-page="home"]');
+    await expect('document.querySelector(".page-title h1").textContent','资产','Asset page title');
+    await expect('!!document.querySelector(".brand, .brand-sub, .greeting")',false,'No extra brand or greeting header');
+    await screenshot('09-home');
+    await send('Emulation.setDeviceMetricsOverride',{width:360,height:800,deviceScaleFactor:1,mobile:true});await screenshot('10-home-small');
+    await send('Page.reload');await sleep(300);await expect('shiji.state.goals.length',2,'Goals survive reload');await expect('shiji.state.assets.length',4,'Assets survive reload');await expect('shiji.state.tasks[0].done',true,'Todo survives reload');
+    await expect('shiji.state.pageOptions.wealth.allocation',true,'Asset module choice survives reload');
+    await expect('shiji.state.pageOptions.todos.dates',false,'Page content choice survives reload');
+    await click('[data-action="nav"][data-page="settings"]');await click('[data-action="demo"]');await click('[data-action="start-demo"]');
+    await expect('shiji.state.demo',true,'Demo enabled');await expect('JSON.parse(localStorage.getItem("shiji-state")).goals.length',2,'Demo never overwrites real state');await screenshot('11-demo');
+    await click('[data-action="exit-demo"]');await expect('shiji.state.demo',false,'Exit restores real state');await expect('shiji.state.goals.length',2,'Real goals retained');
+    await click('[data-page="home"]');await click('[data-page="goals"]');await click('[data-action="add-goal"]');
+    await fill({name:'<img src=x onerror=alert(1)>',amount:'1000',deadline:'2030-01-01',scope:'all'});
+    await expect('document.querySelectorAll("img").length',0,'User text rendered as text, never markup');
+    await click('[data-page="home"]');await click('[data-action="nav"][data-page="settings"]');await click('[data-page="connections"]');await screenshot('15-connections');await click('[data-page="xiaoqing"]');await screenshot('16-xiaoqing');await click('[data-action="login"]');await expect('document.querySelector(".warning-note").textContent.includes("浏览器")',true,'Preview does not collect live login credentials');await screenshot('12-login');await click('[data-action="close"]');
+    // Native-bridge integration fixture: no real credentials or account data.
+    await send('Page.addScriptToEvaluateOnNewDocument',{source:`window.NativeHub={call(id,action,payload){const args=JSON.parse(payload);let r={ok:true};if(action==='load')r={ok:true,connected:false,state:{}};if(action==='login'){r={ok:true,accounts:[{code:'mock1',name:'测试储蓄',balance:1234,currency:'RMB',reckonIn:false,source:'xiaoqing'}],syncedAt:Date.now()};window.loginFields=Object.keys(args).sort();}if(action==='sync')r={ok:false,expired:true,error:'登录已过期'};if(action==='checkUpdate')r={ok:true,published:true,currentVersion:'0.7.5',currentCode:12,latestVersion:'v0.1.0',latestCode:13,url:'https://github.com/mio-1/Morrow/releases/tag/v0.1.0'};if(action==='openUpdate')window.openedRelease=args.url;setTimeout(()=>window.onNativeResult(id,r),10);}};`});
+    await send('Page.reload');await sleep(250);await click('[data-action="connect"]');await click('[data-action="login"]');await fill({phone:'13800000000',password:'test-only'});
+    await expect('shiji.state.assets[0].balance',1234,'Native login response updates assets');await expect('window.loginFields',['password','phone'],'Login bridge contract');
+    await expect('document.querySelector("#overlay").innerHTML','','Login sheet closes after success');
+    await click('[data-action="sync"]');await sleep(80);await expect('shiji.state.assets[0].balance',1234,'Expired session retains cached balances');
+    await expect('document.querySelector("#toast").textContent.includes("过期")',true,'Expired session feedback');
+    await click('[data-page="settings"]');await click('[data-action="check-update"]');await sleep(40);
+    await expect('document.querySelector(".update-status strong").textContent','发现新版本','New release is detected');
+    await click('[data-action="open-update"]');
+    await expect('window.openedRelease','https://github.com/mio-1/Morrow/releases/tag/v0.1.0','Release page opens through native bridge');
+    assert.deepEqual(errors,[],'No runtime exceptions');
+    const report={passed, runtimeErrors:errors,viewports:[390,360],screenshots:fs.readdirSync(out).filter(f=>f.endsWith('.png')),coverage:['goal CRUD','asset exclusion and classification','amount/percent allocation','asset/todo/settings navigation','per-page module visibility','todos','persistence','demo isolation','XSS escaping','native bridge success and expiry']};
+    fs.writeFileSync(path.join(root,'dist','browser-test-report.json'),JSON.stringify(report,null,2));
+    console.log(JSON.stringify(report,null,2));
+  }finally{clearTimeout(watchdog);if(ws)ws.close();browser.kill();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

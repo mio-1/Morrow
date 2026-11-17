@@ -1,0 +1,9 @@
+.tooling/
+build/
+dist/
+.browser-profile/
+*.jks
+*.keystore
+local.properties
+node_modules/
+__pycache__/
