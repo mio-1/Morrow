@@ -1,6 +1,19 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const C = require('../app/src/main/assets/core.js');
+test('todo priority migrates safely and urgency varies smoothly with time and priority',()=>{
+  const s=C.migrate({tasks:[{id:'old',text:'旧待办',deadline:'2026-11-20',done:false}]});
+  assert.equal(s.tasks[0].priority,'medium');
+  const urgency=(deadline,priority)=>C.taskUrgency({deadline,priority},'2026-11-18');
+  assert.ok(urgency('2026-11-20','high').score>urgency('2026-11-20','medium').score);
+  assert.ok(urgency('2026-11-20','medium').score>urgency('2026-11-20','low').score);
+  assert.ok(urgency('2026-11-20','medium').score>urgency('2026-12-20','medium').score);
+  assert.ok(urgency('2026-11-17','medium').score>urgency('2026-11-20','medium').score);
+  assert.equal(urgency('2026-11-20','medium').label,'剩 2 天');
+  assert.equal(urgency('2026-11-18','medium').label,'今天到期');
+  assert.equal(urgency('2026-11-17','medium').label,'逾期 1 天');
+  assert.equal(C.taskUrgency({deadline:''},'2026-11-18'),null);
+});
 test('assets: exclude only the user-confirmed marker; hidden status is independent; debts keep their sign',()=>{
   const s=C.empty();
   s.assets=[{code:'included',balance:100.10,currency:'RMB',reckonIn:false,status:'HIDE'},

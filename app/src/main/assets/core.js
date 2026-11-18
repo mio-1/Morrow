@@ -4,7 +4,7 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 5;
+  const SCHEMA = 6;
   const MODULES = [
     { id: 'wealth', name: '资产统计', shortName: '资产', description: '账户余额与资产变化', icon: 'wallet', page: 'wealth', enabled: true },
     { id: 'goals', name: '长期目标', shortName: '目标', description: '把想要的生活变成进度', icon: 'flag', page: 'goals', enabled: true },
@@ -48,6 +48,7 @@
   function migrate(value) {
     const s = Object.assign(empty(), value || {});
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
+    s.tasks = s.tasks.filter(t=>t&&typeof t==='object').map(t=>({...t,priority:['low','medium','high'].includes(t.priority)?t.priority:'medium'}));
     s.categoryMap = s.categoryMap && typeof s.categoryMap === 'object' ? s.categoryMap : {};
     s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)) : CATEGORIES.map(c => ({...c}));
     if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other')});
@@ -89,6 +90,14 @@
     return utc.getTime() / 86400000;
   }
   function today(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  function taskUrgency(task, now = today()) {
+    const days = dateDay(task.deadline) - dateDay(now);
+    if (!Number.isFinite(days)) return null;
+    const level = {low:0, medium:1, high:2}[task.priority] ?? 1;
+    const timePressure = 1 / (1 + Math.exp((days - 7) / 4));
+    const score = Math.max(0, Math.min(1, 0.78 * timePressure + 0.11 * level));
+    return {days, score, hue:Math.round(214 + 158 * score), label:days < 0 ? `逾期 ${-days} 天` : days === 0 ? '今天到期' : `剩 ${days} 天`};
+  }
   function goalValue(s, g) { const t = totals(s); return g.scope && g.scope !== 'all' ? (t.categories[g.scope] || 0) : t.total; }
   function goalMetrics(s, g, now = today()) {
     const current = goalValue(s, g), amount = Number(g.amount), remaining = Math.max(0, round(amount - current));
@@ -164,6 +173,6 @@
     s.lastSync = new Date().toISOString();
     return s;
   }
-  return { SCHEMA, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, dateDay,
+  return { SCHEMA, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, dateDay, taskUrgency,
     goalValue, goalMetrics, allocation, recordSnapshot, monthChange, validateGoal, validateAllocation, demo };
 });

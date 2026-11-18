@@ -83,7 +83,9 @@ test('todos sort by due date and keep only undated active tasks in the library',
   assert.ok(!app.innerHTML.includes('已经完成'));
   for(const label of ['添加待办','待办库','待办页面设置']) assert.ok(app.innerHTML.includes(`aria-label="${label}"`));
   assert.ok(app.innerHTML.includes('data-action="toggle-task" data-id="early"'));
+  assert.ok(app.innerHTML.includes('class="urgency-badge"'));
   window.shiji.navigate('todo-library');
+  assert.ok(app.innerHTML.includes('class="title-back" data-action="nav" data-page="todos"'));
   assert.ok(app.innerHTML.includes('还没安排'));
   assert.ok(!app.innerHTML.includes('较早事项'));
   assert.ok(!app.innerHTML.includes('较晚事项'));

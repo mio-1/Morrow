@@ -2,7 +2,7 @@
   'use strict';
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
-  let state = C.empty(), page = 'home', wealthTab = 'accounts', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0;
+  let state = C.empty(), page = 'home', wealthTab = 'accounts', moduleSettingsId = 'wealth', moduleSettingsReturn = 'settings', connected = false, busy = false, toastTimer, nextId = 0;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -57,10 +57,10 @@
     const tabs = [{ id:'home', label:'资产', icon:'wallet' }, { id:'todos', label:'待办', icon:'list' }, { id:'settings', label:'设置', icon:'settings' }];
     const views = { home:homeView, goals:goalsView, wealth:wealthView, allocation:allocationPage, settings:settingsView, connections:connectionsView, xiaoqing:xiaoqingView, 'module-settings':moduleSettingsView, todos:todosView, 'todo-library':todoLibraryView };
     app.innerHTML = `<main class="shell">
-      ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航">${tabs.map(t => { const active=page===t.id || t.id==='home' && ['goals','wealth','allocation'].includes(page) || t.id==='todos' && page==='todo-library' || t.id==='settings' && ['module-settings','connections','xiaoqing'].includes(page); return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
+      ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航">${tabs.map(t => { const active=page===t.id || t.id==='home' && ['goals','wealth','allocation'].includes(page) || t.id==='todos' && (page==='todo-library'||page==='module-settings'&&moduleSettingsReturn==='todos') || t.id==='settings' && (['connections','xiaoqing'].includes(page)||page==='module-settings'&&moduleSettingsReturn==='settings'); return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
   }
-  function title(eyebrow, name, subtitle, button) {
-    return `<div class="page-title"><div>${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${name}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${button || ''}</div>`;
+  function title(eyebrow, name, subtitle, button, backPage='') {
+    return `<div class="page-title ${backPage?'has-back':''}">${backPage?`<button class="title-back" data-action="nav" data-page="${esc(backPage)}" aria-label="返回${backPage==='todos'?'待办':'设置'}">${icon('arrow')}</button>`:''}<div class="page-heading">${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${name}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${button || ''}</div>`;
   }
   function homeView() {
     const visible=C.PAGE_OPTIONS.wealth.filter(o=>pageOption('wealth',o.id));
@@ -149,8 +149,8 @@
     return `<div class="card chart-card"><div class="section-head"><h2>计入资产的变化</h2><span class="chip gray">${count} 天记录</span></div><strong style="font-size:28px">${hasAssets()?yuan(C.totals(state).total):'—'}</strong>${chart}</div><p class="footnote">从首次使用本 App 开始记录，每天保留最近一次同步。曲线是资产余额变化，含价格涨跌，不等同于净存入金额。历史快照暂保存在这台设备。</p>`;
   }
   function taskRow(t, inLibrary=false) {
-    const overdue=t.deadline&&!t.done&&C.dateDay(t.deadline)<C.dateDay(C.today());
-    return `<div class="task-row ${t.done?'done':''}"><button class="task-check" data-action="toggle-task" data-id="${esc(t.id)}" aria-label="${t.done?'恢复':'完成'}${esc(t.text)}" aria-pressed="${!!t.done}">${t.done?icon('check'):''}</button><button class="task-content" data-action="edit-task" data-id="${esc(t.id)}"><span class="task-text">${esc(t.text)}</span>${inLibrary?`<small class="task-meta ${overdue?'overdue':''}">${t.done?'已完成':t.deadline?`${overdue?'已逾期 · ':''}${esc(t.deadline)}`:'未安排日期'}</small>`:''}</button><button class="task-more" data-action="edit-task" data-id="${esc(t.id)}" aria-label="编辑${esc(t.text)}">${icon('arrow')}</button></div>`;
+    const urgency=!t.done?C.taskUrgency(t):null, priority={low:'低',medium:'中',high:'高'}[t.priority]||'中';
+    return `<div class="task-row ${t.done?'done':''}"><button class="task-check" data-action="toggle-task" data-id="${esc(t.id)}" aria-label="${t.done?'恢复':'完成'}${esc(t.text)}" aria-pressed="${!!t.done}">${t.done?icon('check'):''}</button><button class="task-content" data-action="edit-task" data-id="${esc(t.id)}"><span class="task-text">${esc(t.text)}</span>${inLibrary?`<small class="task-meta">${t.done?'已完成':`${priority}优先级 · 未安排日期`}</small>`:''}</button>${urgency?`<span class="urgency-badge" style="--urgency-hue:${urgency.hue}" aria-label="${priority}优先级，${urgency.label}">${priority} · ${urgency.label}</span>`:''}<button class="task-more" data-action="edit-task" data-id="${esc(t.id)}" aria-label="编辑${esc(t.text)}">${icon('arrow')}</button></div>`;
   }
   function dateHeading(date) {
     const day=C.dateDay(date), today=C.dateDay(C.today()), d=new Date(day*86400000);
@@ -162,7 +162,7 @@
     return `<section class="todo-group" data-group="${esc(key)}"><div class="todo-group-head"><h2>${label}</h2><span>${tasks.length}</span></div><div class="todo-group-card">${tasks.map(t=>taskRow(t,inLibrary)).join('')}</div></section>`;
   }
   function todosView() {
-    const dated=state.tasks.filter(t=>!t.done&&Number.isFinite(C.dateDay(t.deadline))).slice().sort((a,b)=>C.dateDay(a.deadline)-C.dateDay(b.deadline));
+    const dated=state.tasks.filter(t=>!t.done&&Number.isFinite(C.dateDay(t.deadline))).slice().sort((a,b)=>C.dateDay(a.deadline)-C.dateDay(b.deadline)||({high:0,medium:1,low:2}[a.priority]??1)-({high:0,medium:1,low:2}[b.priority]??1));
     const dates=[...new Set(dated.map(t=>t.deadline))];
     const completed=pageOption('todos','completed')?state.tasks.filter(t=>t.done).slice().reverse():[];
     const actions=`<div class="todo-actions"><button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button><button class="icon-btn" aria-label="待办库" data-action="nav" data-page="todo-library">${icon('archive')}</button><button class="icon-btn" aria-label="待办页面设置" data-action="page-settings" data-id="todos">${icon('settings')}</button></div>`;
@@ -172,7 +172,7 @@
   }
   function todoLibraryView() {
     const undated=state.tasks.filter(t=>!t.done&&!Number.isFinite(C.dateDay(t.deadline))).slice().reverse();
-    return `<button class="back-link" data-action="nav" data-page="todos">${icon('arrow')}待办</button>`+title('','待办库','',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`)+
+    return title('','待办库','',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`,'todos')+
       (undated.length?taskGroup('未安排',undated,'undated',true):'')+
       (!undated.length?emptyCard('没有未安排的待办','','add-task','添加待办','archive'):'');
   }
@@ -220,7 +220,7 @@
   function moduleSettingsView() {
     const id=moduleSettingsId==='todos'?'todos':'wealth', name=id==='todos'?'待办':'资产';
     const detail=id==='wealth'?`<section class="settings-section"><h2>长期目标详情</h2><div class="settings-group">${optionRows('goals','长期目标')}</div></section><section class="settings-section"><h2>资产配置详情</h2><div class="settings-group">${optionRows('allocation','资产配置')}</div></section>`:'';
-    return `<button class="back-link" data-action="nav" data-page="settings">${icon('arrow')}设置</button>` + title('',name+'页面','选择这个页面要显示的模块。') +
+    return title('',name+'页面','选择这个页面要显示的模块。','',moduleSettingsReturn) +
       `<section class="settings-section"><h2>页面模块</h2><div class="settings-group">${optionRows(id,name)}</div></section>`+detail;
   }
   function openSheet(titleText, body, dialogClass='') {
@@ -232,7 +232,7 @@
   function formError(text) { const el=overlay.querySelector('.form-error'); if(el)el.textContent=text; else toast(text); }
   function taskForm(id) {
     const task=state.tasks.find(t=>t.id===id);
-    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><label class="form-field"><span>待完成日期</span><input name="deadline" type="date" value="${esc(task?.deadline||'')}"></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><label class="form-field"><span>待完成日期</span><input name="deadline" type="date" value="${esc(task?.deadline||'')}"></label><label class="form-field"><span>优先级</span><select name="priority"><option value="low" ${task?.priority==='low'?'selected':''}>低</option><option value="medium" ${!task||task.priority==='medium'?'selected':''}>中</option><option value="high" ${task?.priority==='high'?'selected':''}>高</option></select></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
   }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
@@ -306,7 +306,7 @@
     'delete-manual-confirm':el=>confirm('删除手动账户？','该账户的余额将不再计入目标；不会修改小青账。','delete-manual',el.dataset.id),
     'delete-manual':el=>{state.assets=state.assets.filter(a=>a.code!==el.dataset.id);delete state.categoryMap[el.dataset.id];C.recordSnapshot(state);save();closeSheet();render();},
     'toggle-page-option':el=>{const moduleId=el.dataset.module, optionId=el.dataset.option;if(!C.PAGE_OPTIONS[moduleId]?.some(o=>o.id===optionId))return;state.pageOptions[moduleId][optionId]=!pageOption(moduleId,optionId);save();render();},
-    'page-settings':el=>{moduleSettingsId=el.dataset.id;navigate('module-settings');},
+    'page-settings':el=>{moduleSettingsId=el.dataset.id;moduleSettingsReturn=page==='todos'?'todos':'settings';navigate('module-settings');},
     'open-accounts':()=>{wealthTab='accounts';navigate('wealth');},
     'open-trend':()=>{wealthTab='trend';navigate('wealth');},
     'add-task':()=>taskForm(), 'edit-task':el=>taskForm(el.dataset.id),
@@ -339,8 +339,8 @@
     }else if(type==='task'){
       if(!data.text.trim()){formError('请填写待办内容');return;}
       if(data.deadline&&!Number.isFinite(C.dateDay(data.deadline))){formError('请选择有效日期');return;}
-      const task=state.tasks.find(t=>t.id===form.dataset.id);
-      if(task){task.text=data.text.trim();task.deadline=data.deadline;}else state.tasks.push({id:uid(),text:data.text.trim(),deadline:data.deadline,done:false});
+      const task=state.tasks.find(t=>t.id===form.dataset.id), priority=['low','medium','high'].includes(data.priority)?data.priority:'medium';
+      if(task){task.text=data.text.trim();task.deadline=data.deadline;task.priority=priority;}else state.tasks.push({id:uid(),text:data.text.trim(),deadline:data.deadline,priority,done:false});
       save();closeSheet();render();toast(task?'已保存':'已添加');
     }else if(type==='rename'){
       if(!data.name.trim()){formError('名称不能为空');return;}state.name=data.name.trim();save();closeSheet();render();
@@ -360,7 +360,7 @@
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
     }
   });
-  window.hubBack=()=>{if(overlay.innerHTML){closeSheet();return true;}if(page==='xiaoqing'){navigate('connections');return true;}if(page==='connections'||page==='module-settings'){navigate('settings');return true;}if(page==='todo-library'){navigate('todos');return true;}if(page!=='home'){navigate('home');return true;}return false;};
+  window.hubBack=()=>{if(overlay.innerHTML){closeSheet();return true;}if(page==='xiaoqing'){navigate('connections');return true;}if(page==='connections'){navigate('settings');return true;}if(page==='module-settings'){navigate(moduleSettingsReturn);return true;}if(page==='todo-library'){navigate('todos');return true;}if(page!=='home'){navigate('home');return true;}return false;};
   // Small explicit interface for browser QA, never exposes native credentials.
   window.shiji={get state(){return state;}, setState:s=>{state=C.migrate(s);render();},render,navigate,openGoal:goalForm};
   call('load').then(result=>{if(result.ok){state=C.migrate(result.state);connected=!!result.connected;}else toast(result.error);render();if(connected&&(!state.lastSync||Date.now()-new Date(state.lastSync).getTime()>900000))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});

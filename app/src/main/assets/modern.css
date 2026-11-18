@@ -175,6 +175,10 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 :root { --bg:#f6f8fc; --ink:#15213a; --muted:#78869a; --line:#e9eef6; --shadow:0 10px 30px #172b4d09; }
 .shell { padding:34px 22px 122px; }
 .page-title { min-height:43px; margin-bottom:25px; align-items:center; }
+.page-heading { flex:1; min-width:0; }
+.page-title.has-back { gap:10px; }
+.title-back { width:32px; height:36px; margin-left:-5px; display:grid; place-items:center; color:var(--ink); flex:none; }
+.title-back svg { width:19px; height:19px; transform:rotate(180deg); }
 .page-title h1 { font-size:30px; line-height:1.2; letter-spacing:-1.05px; font-weight:720; }
 .icon-btn { background:#fff; border:1px solid #edf1f8; box-shadow:0 4px 13px #203d6910; border-radius:13px; }
 .icon-btn svg { width:18px; height:18px; }
@@ -245,6 +249,9 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .task-meta.overdue { color:#ba6257; }
 .task-more { color:#b7c0cd; padding:6px 0 6px 8px; }
 .task-more svg { width:15px; height:15px; }
+.urgency-badge { flex:none; white-space:nowrap; font-size:10px; font-weight:650; line-height:1; padding:7px 8px; border-radius:8px; color:hsl(var(--urgency-hue) 57% 39%); background:hsl(var(--urgency-hue) 80% 94%); font-variant-numeric:tabular-nums; }
+.task-row:has(.urgency-badge) { gap:8px; }
+.task-row:has(.urgency-badge) .task-more { padding-left:2px; }
 .task-row.done .task-check { background:var(--green); border-color:var(--green); }
 .task-row.done .task-text { color:#9ca6b5; font-weight:500; text-decoration:line-through; text-decoration-color:#aeb8c5; }
 .task-delete-action { display:block; width:100%; min-height:44px; margin-top:10px; color:#b65d57; font-size:13px; }
