@@ -14,7 +14,7 @@
     settings:'M4 7h9m4 0h3M4 17h3m4 0h9M15 5v4M9 15v4',
     trend:'M3 18l6-6 4 3 8-10m-6 0h6v6', calendar:'M4 5h16v16H4zM8 3v4m8-4v4M4 10h16',
     leaf:'M20 3C6 2 1 8 5 15c7 7 15-1 15-12zM5 21l10-12',
-    trash:'M3 6h18M9 3h6m-10 3 1 15h12l1-15M10 10v7m4-7v7',
+    trash:'M3 6h18M9 3h6m-10 3 1 15h12l1-15M10 10v7m4-7v7', archive:'M3 5h18v4H3zM5 9v11h14V9M10 13h4',
     lock:'M5 10h14v11H5zM8 10V6a4 4 0 0 1 8 0v4', edit:'M14 5l5 5M3 21l5-1L21 7l-5-5L3 15z',
     clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l4 2'
   };
@@ -55,10 +55,9 @@
   }
   function render() {
     const tabs = [{ id:'home', label:'资产', icon:'wallet' }, { id:'todos', label:'待办', icon:'list' }, { id:'settings', label:'设置', icon:'settings' }];
-    const views = { home:homeView, goals:goalsView, wealth:wealthView, allocation:allocationPage, settings:settingsView, connections:connectionsView, xiaoqing:xiaoqingView, 'module-settings':moduleSettingsView, todos:todosView };
+    const views = { home:homeView, goals:goalsView, wealth:wealthView, allocation:allocationPage, settings:settingsView, connections:connectionsView, xiaoqing:xiaoqingView, 'module-settings':moduleSettingsView, todos:todosView, 'todo-library':todoLibraryView };
     app.innerHTML = `<main class="shell">
-      ${state.demo ? '<div class="demo-banner"><span>示例模式 · 所有金额均为演示数据</span><button data-action="exit-demo">退出示例</button></div>' : ''}
-      ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航">${tabs.map(t => { const active=page===t.id || t.id==='home' && ['goals','wealth','allocation'].includes(page) || t.id==='settings' && ['module-settings','connections','xiaoqing'].includes(page); return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
+      ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航">${tabs.map(t => { const active=page===t.id || t.id==='home' && ['goals','wealth','allocation'].includes(page) || t.id==='todos' && page==='todo-library' || t.id==='settings' && ['module-settings','connections','xiaoqing'].includes(page); return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
   }
   function title(eyebrow, name, subtitle, button) {
     return `<div class="page-title"><div>${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${name}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${button || ''}</div>`;
@@ -149,18 +148,42 @@
     }
     return `<div class="card chart-card"><div class="section-head"><h2>计入资产的变化</h2><span class="chip gray">${count} 天记录</span></div><strong style="font-size:28px">${hasAssets()?yuan(C.totals(state).total):'—'}</strong>${chart}</div><p class="footnote">从首次使用本 App 开始记录，每天保留最近一次同步。曲线是资产余额变化，含价格涨跌，不等同于净存入金额。历史快照暂保存在这台设备。</p>`;
   }
-  function taskRow(t) {
-    return `<div class="task-row ${t.done?'done':''}"><button class="task-check" data-action="toggle-task" data-id="${esc(t.id)}" aria-label="${t.done?'取消完成':'完成'}${esc(t.text)}" aria-pressed="${t.done}">${t.done?icon('check'):''}</button><div class="task-text">${esc(t.text)}${t.deadline&&pageOption('todos','dates')?`<small>${esc(t.deadline)}${!t.done&&C.dateDay(t.deadline)<C.dateDay(C.today())?' · 已逾期':''}</small>`:''}</div><button class="task-delete" data-action="delete-task" data-id="${esc(t.id)}" aria-label="删除待办">${icon('trash')}</button></div>`;
+  function taskRow(t, inLibrary=false) {
+    const overdue=t.deadline&&!t.done&&C.dateDay(t.deadline)<C.dateDay(C.today());
+    return `<div class="task-row ${t.done?'done':''}"><button class="task-check" data-action="toggle-task" data-id="${esc(t.id)}" aria-label="${t.done?'恢复':'完成'}${esc(t.text)}" aria-pressed="${!!t.done}">${t.done?icon('check'):''}</button><button class="task-content" data-action="edit-task" data-id="${esc(t.id)}"><span class="task-text">${esc(t.text)}</span>${inLibrary?`<small class="task-meta ${overdue?'overdue':''}">${t.done?'已完成':t.deadline?`${overdue?'已逾期 · ':''}${esc(t.deadline)}`:'未安排日期'}</small>`:''}</button><button class="task-more" data-action="edit-task" data-id="${esc(t.id)}" aria-label="编辑${esc(t.text)}">${icon('arrow')}</button></div>`;
+  }
+  function dateHeading(date) {
+    const day=C.dateDay(date), today=C.dateDay(C.today()), d=new Date(day*86400000);
+    const dateLabel=`${d.getUTCFullYear()!==new Date().getFullYear()?`${d.getUTCFullYear()}年`:''}${d.getUTCMonth()+1}月${d.getUTCDate()}日`;
+    const label=day===today?'今天':day===today+1?'明天':day<today?'已逾期':dateLabel;
+    return `<div class="todo-group-head"><h2>${label}</h2><span>${day<today?`${dateLabel} · `:''}${['周日','周一','周二','周三','周四','周五','周六'][d.getUTCDay()]}</span></div>`;
+  }
+  function taskGroup(label, tasks, key, inLibrary=false) {
+    return `<section class="todo-group" data-group="${esc(key)}"><div class="todo-group-head"><h2>${label}</h2><span>${tasks.length}</span></div><div class="todo-group-card">${tasks.map(t=>taskRow(t,inLibrary)).join('')}</div></section>`;
   }
   function todosView() {
-    const visible=state.tasks.filter(t=>pageOption('todos','completed')||!t.done);
-    return title('','待办清单','记录眼前要做的事。',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`) +
-      (visible.length ? `<div class="card">${visible.slice().sort((a,b)=>Number(a.done)-Number(b.done)).map(taskRow).join('')}</div>` : state.tasks.length ? hint('已完成待办已隐藏，可以在这个功能的设置中重新显示。') : emptyCard('先记下眼前这一件','一条待办，一个日期，轻轻放下脑海里的负担。','add-task','添加待办','check'));
+    const dated=state.tasks.filter(t=>!t.done&&Number.isFinite(C.dateDay(t.deadline))).slice().sort((a,b)=>C.dateDay(a.deadline)-C.dateDay(b.deadline));
+    const dates=[...new Set(dated.map(t=>t.deadline))];
+    const completed=pageOption('todos','completed')?state.tasks.filter(t=>t.done).slice().reverse():[];
+    const actions=`<div class="todo-actions"><button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button><button class="icon-btn" aria-label="待办库" data-action="nav" data-page="todo-library">${icon('archive')}</button><button class="icon-btn" aria-label="待办页面设置" data-action="page-settings" data-id="todos">${icon('settings')}</button></div>`;
+    return title('','待办','',actions)+
+      (dated.length?dates.map(date=>`<section class="todo-group" data-date="${esc(date)}">${dateHeading(date)}<div class="todo-group-card">${dated.filter(t=>t.deadline===date).map(t=>taskRow(t)).join('')}</div></section>`).join(''):emptyCard('没有待完成的日程','给待办设置日期后，会按日期显示在这里。','add-task','添加待办','check'))+
+      (completed.length?taskGroup('已完成',completed,'completed',true):'');
+  }
+  function todoLibraryView() {
+    const open=state.tasks.filter(t=>!t.done), undated=open.filter(t=>!Number.isFinite(C.dateDay(t.deadline))).slice().reverse();
+    const planned=open.filter(t=>Number.isFinite(C.dateDay(t.deadline))).slice().sort((a,b)=>C.dateDay(a.deadline)-C.dateDay(b.deadline));
+    const completed=state.tasks.filter(t=>t.done).slice().reverse();
+    return `<button class="back-link" data-action="nav" data-page="todos">${icon('arrow')}待办</button>`+title('','待办库','',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`)+
+      (undated.length?taskGroup('未安排',undated,'undated',true):'')+
+      (planned.length?taskGroup('已安排',planned,'planned',true):'')+
+      (completed.length?taskGroup('已完成',completed,'completed',true):'')+
+      (!state.tasks.length?emptyCard('待办库还是空的','','add-task','添加待办','archive'):'');
   }
   function settingsView() {
     return title('','设置','管理每个页面显示的内容。') +
-      `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="page-settings" data-id="wealth"><span class="row-glyph">${icon('wallet')}</span><div><h3>资产页面</h3><p>概览、账户、趋势、长期目标、资产配置</p></div>${icon('arrow')}</button><button class="settings-row" data-action="page-settings" data-id="todos"><span class="row-glyph">${icon('list')}</span><div><h3>待办页面</h3><p>已完成事项、截止日期</p></div>${icon('arrow')}</button></div></section>` +
-      `<section class="settings-section"><h2>连接与数据</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="connections"><span class="row-glyph">${icon('sync')}</span><div><h3>连接管理</h3><p>${connected?'已连接小青账 · 管理外部服务':'管理小青账与其他外部服务'}</p></div>${icon('arrow')}</button><button class="settings-row" data-action="demo"><span class="row-glyph">${icon('pie')}</span><div><h3>体验示例</h3><p>查看示例，不覆盖自己的数据</p></div>${icon('arrow')}</button></div></section>` +
+      `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="page-settings" data-id="wealth"><span class="row-glyph">${icon('wallet')}</span><div><h3>资产页面</h3><p>概览、账户、趋势、长期目标、资产配置</p></div>${icon('arrow')}</button><button class="settings-row" data-action="page-settings" data-id="todos"><span class="row-glyph">${icon('list')}</span><div><h3>待办页面</h3><p>已完成事项</p></div>${icon('arrow')}</button></div></section>` +
+      `<section class="settings-section"><h2>连接与数据</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="connections"><span class="row-glyph">${icon('sync')}</span><div><h3>连接管理</h3><p>${connected?'已连接小青账 · 管理外部服务':'管理小青账与其他外部服务'}</p></div>${icon('arrow')}</button></div></section>` +
       `<section class="settings-section"><h2>应用</h2><div class="settings-group"><button class="settings-row" data-action="check-update"><span class="row-glyph">${icon('sync')}</span><div><h3>检查更新</h3></div>${icon('arrow')}</button></div></section>`;
   }
   function versionParts(value) {
@@ -211,6 +234,10 @@
   }
   function closeSheet() { overlay.innerHTML=''; document.body.style.overflow=''; }
   function formError(text) { const el=overlay.querySelector('.form-error'); if(el)el.textContent=text; else toast(text); }
+  function taskForm(id) {
+    const task=state.tasks.find(t=>t.id===id);
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><label class="form-field"><span>待完成日期</span><input name="deadline" type="date" value="${esc(task?.deadline||'')}"></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`);
+  }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
     openSheet(g?'编辑目标':'给未来起个名字',`<form data-form="goal" data-id="${esc(id||'')}"><label class="form-field"><span>目标名称</span><input name="name" maxlength="40" placeholder="例如：攒下第一笔底气" value="${esc(g?.name||'')}" required></label><label class="form-field"><span>目标金额 · 人民币</span><input name="amount" type="number" inputmode="decimal" min="0.01" max="1000000000000" step="0.01" placeholder="200000" value="${g?.amount||''}" required></label><label class="form-field"><span>截止日期</span><input name="deadline" type="date" value="${esc(g?.deadline||C.today(date))}" required></label><label class="form-field"><span>用哪部分资产计算进度</span><select name="scope"><option value="all">全部计入资产</option>${C.categories(state).map(c=>`<option value="${c.id}" ${g?.scope===c.id?'selected':''}>只看${esc(c.name)}</option>`).join('')}</select><small>按小青账“不计入”标签排除账户。多个目标可以共享同一份资产。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${g?'保存目标':'开始靠近目标'}</button>${g?'<button type="button" class="text-btn danger full" data-action="delete-goal-confirm" data-id="'+esc(id)+'">删除这个目标</button>':''}</form>`);
@@ -286,14 +313,11 @@
     'page-settings':el=>{moduleSettingsId=el.dataset.id;navigate('module-settings');},
     'open-accounts':()=>{wealthTab='accounts';navigate('wealth');},
     'open-trend':()=>{wealthTab='trend';navigate('wealth');},
-    'add-task':()=>openSheet('记下一件事','<form data-form="task"><label class="form-field"><span>要做的事</span><input name="text" maxlength="140" placeholder="例如：整理本月资产配置" required></label><label class="form-field"><span>日期 · 可选</span><input name="deadline" type="date"></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">加入清单</button></form>'),
-    'toggle-task':el=>{const t=state.tasks.find(t=>t.id===el.dataset.id);t.done=!t.done;save();render();},
+    'add-task':()=>taskForm(), 'edit-task':el=>taskForm(el.dataset.id),
+    'toggle-task':el=>{const t=state.tasks.find(t=>t.id===el.dataset.id);if(!t)return;t.done=!t.done;save();render();toast(t.done?'已完成':'已恢复');},
     'delete-task':el=>confirm('删除这条待办？','删除后无法恢复。','delete-task-now',el.dataset.id),
     'delete-task-now':el=>{state.tasks=state.tasks.filter(t=>t.id!==el.dataset.id);save();closeSheet();render();},
     rename:()=>openSheet('给这个空间起个名字',`<form data-form="rename"><label class="form-field"><span>应用内名称</span><input name="name" maxlength="12" value="${esc(state.name)}" required><small>修改界面里的名称，不影响桌面图标名称。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存名称</button></form>`),
-    demo:()=>{if(state.demo){navigate('home');return;}confirm('进入示例模式？','会暂存你的数据，示例模式中的修改不会影响真实目标。退出后恢复。','start-demo');},
-    'start-demo':()=>{window.realState=state;state=C.demo();closeSheet();page='home';render();},
-    'exit-demo':()=>{state=window.realState||C.empty();window.realState=null;closeSheet();render();},
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
     logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
@@ -317,7 +341,11 @@
       const id=form.dataset.id||'manual-'+uid(),a={code:id,name:data.name.trim(),balance:C.round(Number(data.balance)),currency:'RMB',reckonIn:data.exclude==='on',source:'manual',type:'other',liabilities:Number(data.balance)<0};
       state.assets=state.assets.filter(x=>x.code!==id).concat(a);state.categoryMap[id]=data.category;initializeBaselines();C.recordSnapshot(state);save();closeSheet();render();toast('手动账户已保存');
     }else if(type==='task'){
-      if(!data.text.trim()){formError('请写下一件要做的事');return;}state.tasks.push({id:uid(),text:data.text.trim(),deadline:data.deadline,done:false});save();closeSheet();render();toast('已加入清单');
+      if(!data.text.trim()){formError('请填写待办内容');return;}
+      if(data.deadline&&!Number.isFinite(C.dateDay(data.deadline))){formError('请选择有效日期');return;}
+      const task=state.tasks.find(t=>t.id===form.dataset.id);
+      if(task){task.text=data.text.trim();task.deadline=data.deadline;}else state.tasks.push({id:uid(),text:data.text.trim(),deadline:data.deadline,done:false});
+      save();closeSheet();render();toast(task?'已保存':'已添加');
     }else if(type==='rename'){
       if(!data.name.trim()){formError('名称不能为空');return;}state.name=data.name.trim();save();closeSheet();render();
     }else if(type==='category'){
@@ -336,7 +364,7 @@
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
     }
   });
-  window.hubBack=()=>{if(overlay.innerHTML){closeSheet();return true;}if(page==='xiaoqing'){navigate('connections');return true;}if(page==='connections'||page==='module-settings'){navigate('settings');return true;}if(page!=='home'){navigate('home');return true;}return false;};
+  window.hubBack=()=>{if(overlay.innerHTML){closeSheet();return true;}if(page==='xiaoqing'){navigate('connections');return true;}if(page==='connections'||page==='module-settings'){navigate('settings');return true;}if(page==='todo-library'){navigate('todos');return true;}if(page!=='home'){navigate('home');return true;}return false;};
   // Small explicit interface for browser QA, never exposes native credentials.
   window.shiji={get state(){return state;}, setState:s=>{state=C.migrate(s);render();},render,navigate,openGoal:goalForm};
   call('load').then(result=>{if(result.ok){state=C.migrate(result.state);connected=!!result.connected;}else toast(result.error);render();if(connected&&(!state.lastSync||Date.now()-new Date(state.lastSync).getTime()>900000))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});

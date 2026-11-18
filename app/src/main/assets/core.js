@@ -30,8 +30,7 @@
       { id:'progress', name:'进度条', description:'用进度条展示目标完成情况' }
     ],
     todos: [
-      { id:'completed', name:'已完成待办', description:'在清单中保留已完成的事项' },
-      { id:'dates', name:'截止日期', description:'在待办事项下显示日期' }
+      { id:'completed', name:'显示已完成', description:'在待办页面保留已完成的事项' }
     ]
   };
   function defaultPageOptions() { return Object.fromEntries(Object.entries(PAGE_OPTIONS).map(([id,options]) => [id,Object.fromEntries(options.map(o => [o.id,true]))])); }
@@ -59,6 +58,7 @@
     const savedOptions=s.pageOptions && typeof s.pageOptions==='object' ? s.pageOptions : {};
     s.pageOptions=Object.fromEntries(Object.entries(PAGE_OPTIONS).map(([id,options]) => [id,Object.fromEntries(options.map(o => [o.id,savedOptions[id]?.[o.id] !== false]))]));
     delete s.menuShortcuts;
+    s.demo = false;
     s.version = SCHEMA;
     return s;
   }

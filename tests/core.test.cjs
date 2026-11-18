@@ -69,10 +69,11 @@ test('forecast chooses the oldest eligible snapshot even when history is unsorte
   assert.equal(C.goalMetrics(s,g,'2027-01-21').dailyRate,800);
 });
 test('page content options migrate independently and preserve explicit off choices',()=>{
-  const s=C.migrate({pageOptions:{wealth:{summary:false,unknown:false},todos:{dates:false}}});
+  const s=C.migrate({pageOptions:{wealth:{summary:false,unknown:false},todos:{completed:false,dates:false}}});
   assert.equal(s.pageOptions.wealth.summary,false);
   assert.equal(s.pageOptions.wealth.accounts,true);
-  assert.equal(s.pageOptions.todos.dates,false);
+  assert.equal(s.pageOptions.todos.completed,false);
+  assert.equal(s.pageOptions.todos.dates,undefined);
   assert.equal(s.pageOptions.goals.forecast,true);
   assert.equal(s.pageOptions.wealth.unknown,undefined);
 });
