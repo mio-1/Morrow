@@ -60,7 +60,7 @@ test('asset and todo pages have independent visibility settings',async()=>{
   assert.ok(!app.innerHTML.includes('体验示例'));
 });
 
-test('todos sort by due date and keep undated and completed tasks in the library',async()=>{
+test('todos sort by due date and keep only undated active tasks in the library',async()=>{
   const app={innerHTML:''}, overlay={innerHTML:''};
   global.window={HubCore:C,scrollTo(){}};
   global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
@@ -85,6 +85,8 @@ test('todos sort by due date and keep undated and completed tasks in the library
   assert.ok(app.innerHTML.includes('data-action="toggle-task" data-id="early"'));
   window.shiji.navigate('todo-library');
   assert.ok(app.innerHTML.includes('还没安排'));
-  assert.ok(app.innerHTML.includes('已经完成'));
-  assert.ok(app.innerHTML.includes('data-action="edit-task" data-id="early"'));
+  assert.ok(!app.innerHTML.includes('较早事项'));
+  assert.ok(!app.innerHTML.includes('较晚事项'));
+  assert.ok(!app.innerHTML.includes('已经完成'));
+  assert.ok(app.innerHTML.includes('data-action="edit-task" data-id="undated"'));
 });

@@ -171,14 +171,10 @@
       (completed.length?taskGroup('已完成',completed,'completed',true):'');
   }
   function todoLibraryView() {
-    const open=state.tasks.filter(t=>!t.done), undated=open.filter(t=>!Number.isFinite(C.dateDay(t.deadline))).slice().reverse();
-    const planned=open.filter(t=>Number.isFinite(C.dateDay(t.deadline))).slice().sort((a,b)=>C.dateDay(a.deadline)-C.dateDay(b.deadline));
-    const completed=state.tasks.filter(t=>t.done).slice().reverse();
+    const undated=state.tasks.filter(t=>!t.done&&!Number.isFinite(C.dateDay(t.deadline))).slice().reverse();
     return `<button class="back-link" data-action="nav" data-page="todos">${icon('arrow')}待办</button>`+title('','待办库','',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`)+
       (undated.length?taskGroup('未安排',undated,'undated',true):'')+
-      (planned.length?taskGroup('已安排',planned,'planned',true):'')+
-      (completed.length?taskGroup('已完成',completed,'completed',true):'')+
-      (!state.tasks.length?emptyCard('待办库还是空的','','add-task','添加待办','archive'):'');
+      (!undated.length?emptyCard('没有未安排的待办','','add-task','添加待办','archive'):'');
   }
   function settingsView() {
     return title('','设置','管理每个页面显示的内容。') +
@@ -227,8 +223,8 @@
     return `<button class="back-link" data-action="nav" data-page="settings">${icon('arrow')}设置</button>` + title('',name+'页面','选择这个页面要显示的模块。') +
       `<section class="settings-section"><h2>页面模块</h2><div class="settings-group">${optionRows(id,name)}</div></section>`+detail;
   }
-  function openSheet(titleText, body) {
-    overlay.innerHTML = `<div class="backdrop"><section class="sheet" role="dialog" aria-modal="true" aria-label="${esc(titleText)}"><div class="handle"></div><div class="sheet-head"><h2>${esc(titleText)}</h2><button class="icon-btn" aria-label="关闭" data-action="close">${icon('close')}</button></div>${body}</section></div>`;
+  function openSheet(titleText, body, dialogClass='') {
+    overlay.innerHTML = `<div class="backdrop ${esc(dialogClass)}"><section class="sheet" role="dialog" aria-modal="true" aria-label="${esc(titleText)}"><div class="handle"></div><div class="sheet-head"><h2>${esc(titleText)}</h2><button class="icon-btn" aria-label="关闭" data-action="close">${icon('close')}</button></div>${body}</section></div>`;
     document.body.style.overflow='hidden';
     setTimeout(()=>overlay.querySelector('input:not([type="date"]):not([type="checkbox"])')?.focus(),160);
   }
@@ -236,7 +232,7 @@
   function formError(text) { const el=overlay.querySelector('.form-error'); if(el)el.textContent=text; else toast(text); }
   function taskForm(id) {
     const task=state.tasks.find(t=>t.id===id);
-    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><label class="form-field"><span>待完成日期</span><input name="deadline" type="date" value="${esc(task?.deadline||'')}"></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`);
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><label class="form-field"><span>待完成日期</span><input name="deadline" type="date" value="${esc(task?.deadline||'')}"></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
   }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
