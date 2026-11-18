@@ -90,3 +90,9 @@ test('page content options migrate independently and preserve explicit off choic
   assert.equal(s.pageOptions.goals.forecast,true);
   assert.equal(s.pageOptions.wealth.unknown,undefined);
 });
+test('asset blocks retain a unique order and goals retain individual visibility',()=>{
+  const s=C.migrate({wealthOrder:['allocation','allocation','goals'],goals:[{id:'a',visible:false},{id:'b'}]});
+  assert.deepEqual(s.wealthOrder,['allocation','goals','summary']);
+  assert.equal(s.goals[0].visible,false);
+  assert.equal(s.goals[1].visible,true);
+});

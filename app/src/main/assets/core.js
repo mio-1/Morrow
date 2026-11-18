@@ -4,7 +4,10 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 6;
+  const SCHEMA = 8;
+  const WEALTH_BLOCKS = [
+    {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}
+  ];
   const MODULES = [
     { id: 'wealth', name: '资产统计', shortName: '资产', description: '账户余额与资产变化', icon: 'wallet', page: 'wealth', enabled: true },
     { id: 'goals', name: '长期目标', shortName: '目标', description: '把想要的生活变成进度', icon: 'flag', page: 'goals', enabled: true },
@@ -16,11 +19,10 @@
       { id:'summary', name:'资产概览', description:'显示计入资产总额与本月变化' },
       { id:'accounts', name:'账户列表', description:'显示账户入口与余额管理' },
       { id:'trend', name:'资产趋势', description:'显示资产变化入口' },
-      { id:'goals', name:'长期目标', description:'显示目标进度与目标入口' },
+      { id:'goals', name:'存钱目标', description:'显示目标进度与目标入口' },
       { id:'allocation', name:'资产配置', description:'显示类别占比与配置入口' }
     ],
     goals: [
-      { id:'completed', name:'已完成目标', description:'在目标列表中显示已达成的目标' },
       { id:'monthly', name:'每月所需金额', description:'显示按截止日期计算的月度进度' },
       { id:'forecast', name:'预计达成日期', description:'在目标详情中显示趋势预测' }
     ],
@@ -41,17 +43,20 @@
     { id: 'other', name: '其他', color: '#8796ae' }
   ];
   function empty() {
-    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c})), goals: [], tasks: [], history: [],
+    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
       allocationMode: 'amount', allocationTargets: { stock: 0, bond: 0, cash: 0, other: 0 },
       modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), lastSync: null, demo: false };
   }
   function migrate(value) {
     const s = Object.assign(empty(), value || {});
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
+    s.goals=s.goals.filter(g=>g&&typeof g==='object').map(g=>({...g,visible:g.visible!==false}));
     s.tasks = s.tasks.filter(t=>t&&typeof t==='object').map(t=>({...t,priority:['low','medium','high'].includes(t.priority)?t.priority:'medium'}));
     s.categoryMap = s.categoryMap && typeof s.categoryMap === 'object' ? s.categoryMap : {};
     s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)) : CATEGORIES.map(c => ({...c}));
     if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other')});
+    const order=Array.isArray(s.wealthOrder)?s.wealthOrder:[];
+    s.wealthOrder=[...new Set(order.filter(id=>WEALTH_BLOCKS.some(b=>b.id===id)))].concat(WEALTH_BLOCKS.map(b=>b.id).filter(id=>!order.includes(id)));
     s.allocationTargets = Object.assign(empty().allocationTargets, s.allocationTargets || {});
     const existing = Array.isArray(s.modules) ? s.modules.filter(m => MODULES.some(d => d.id === m.id)) : [];
     s.modules = existing.map(m => ({ id:m.id, enabled:!!m.enabled, visible:m.visible !== false }))
@@ -173,6 +178,6 @@
     s.lastSync = new Date().toISOString();
     return s;
   }
-  return { SCHEMA, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, dateDay, taskUrgency,
+  return { SCHEMA, WEALTH_BLOCKS, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, dateDay, taskUrgency,
     goalValue, goalMetrics, allocation, recordSnapshot, monthChange, validateGoal, validateAllocation, demo };
 });

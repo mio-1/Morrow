@@ -35,15 +35,15 @@ test('asset and todo pages have independent visibility settings',async()=>{
   assert.deepEqual((app.innerHTML.match(/class="nav-item/g)||[]).length,3);
   s.pageOptions.wealth.summary=false;s.pageOptions.wealth.accounts=false;s.pageOptions.wealth.goals=false;s.pageOptions.wealth.allocation=false;
   s.pageOptions.allocation.gap=false;s.pageOptions.allocation.progress=false;
-  s.pageOptions.goals.completed=false;s.pageOptions.goals.monthly=false;
+  s.pageOptions.goals.monthly=false;
   s.pageOptions.todos.completed=false;
   s.tasks=[{id:'a',text:'未完成',deadline:'2030-01-01',done:false},{id:'b',text:'已完成',deadline:'2030-01-02',done:true}];
-  s.goals=[{id:'g',name:'已达成',amount:1,scope:'all',deadline:'2030-01-01',createdDate:'2026-01-01'}];
+  s.goals=[{id:'g',name:'已达成',amount:1,scope:'all',deadline:'2030-01-01',createdDate:'2026-01-01',visible:false}];
   window.shiji.setState(s);
   window.shiji.navigate('home');
   assert.ok(!app.innerHTML.includes('存钱目标'));
   assert.ok(!app.innerHTML.includes('资产配置'));
-  assert.ok(app.innerHTML.includes('资产趋势'));
+  assert.ok(!app.innerHTML.includes('资产趋势'));
   window.shiji.navigate('wealth');
   assert.ok(!app.innerHTML.includes('class="card wealth-summary"'));
   assert.ok(!app.innerHTML.includes('data-action="wealth-tab"'));
@@ -85,7 +85,7 @@ test('todos sort by due date and keep only undated active tasks in the library',
   assert.ok(app.innerHTML.includes('data-action="toggle-task" data-id="early"'));
   assert.ok(app.innerHTML.includes('class="urgency-badge"'));
   window.shiji.navigate('todo-library');
-  assert.ok(app.innerHTML.includes('class="title-back" data-action="nav" data-page="todos"'));
+  assert.ok(app.innerHTML.includes('class="title-back" data-action="back"'));
   assert.ok(app.innerHTML.includes('还没安排'));
   assert.ok(!app.innerHTML.includes('较早事项'));
   assert.ok(!app.innerHTML.includes('较晚事项'));

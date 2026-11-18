@@ -2,7 +2,7 @@
   'use strict';
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
-  let state = C.empty(), page = 'home', wealthTab = 'accounts', moduleSettingsId = 'wealth', moduleSettingsReturn = 'settings', connected = false, busy = false, toastTimer, nextId = 0;
+  let state = C.empty(), page = 'home', navRoot='home', navHistory=[], wealthTab = 'accounts', goalFilter='all', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, dragState=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -11,7 +11,7 @@
     wallet:'M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v11H5a3 3 0 0 1-3-3V6m19 7h-5v4h5',
     check:'M5 12l4 4L20 5', list:'M8 6h13M8 12h13M8 18h13M3 6l1 1 2-2M3 12l1 1 2-2M3 18l1 1 2-2', plus:'M12 5v14M5 12h14', close:'M6 6l12 12M18 6L6 18',
     arrow:'M9 5l7 7-7 7', sync:'M20 7a8 8 0 0 0-14-2L3 8m0-5v5h5m-4 9a8 8 0 0 0 14 2l3-3m0 5v-5h-5',
-    settings:'M4 7h9m4 0h3M4 17h3m4 0h9M15 5v4M9 15v4',
+    settings:'M12 3.5l1.2 1.9 2.2.4 1.7-1.3 2.1 2.1-1.3 1.7.4 2.2 1.9 1.2-1.9 1.2-.4 2.2 1.3 1.7-2.1 2.1-1.7-1.3-2.2.4-1.2 1.9-1.2-1.9-2.2-.4-1.7 1.3-2.1-2.1 1.3-1.7-.4-2.2-1.9-1.2 1.9-1.2.4-2.2-1.3-1.7 2.1-2.1 1.7 1.3 2.2-.4zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6',
     trend:'M3 18l6-6 4 3 8-10m-6 0h6v6', calendar:'M4 5h16v16H4zM8 3v4m8-4v4M4 10h16',
     leaf:'M20 3C6 2 1 8 5 15c7 7 15-1 15-12zM5 21l10-12',
     trash:'M3 6h18M9 3h6m-10 3 1 15h12l1-15M10 10v7m4-7v7', archive:'M3 5h18v4H3zM5 9v11h14V9M10 13h4',
@@ -25,6 +25,9 @@
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function catName(id) { return esc((C.categories(state).find(c => c.id === id) || { name:'全部计入资产' }).name); }
   function hint(text) { return `<div class="hint-box">${text}</div>`; }
+  function dateField(label, value, required=false) {
+    return `<div class="form-field"><span>${label}</span><input type="hidden" name="deadline" value="${esc(value||'')}"><button type="button" class="date-field-button" data-action="pick-date" data-required="${required}" aria-label="选择${label}"><span>${value?esc(value):'选择日期'}</span>${icon('calendar')}</button></div>`;
+  }
   function call(action, args = {}) {
     if (!native) {
       if (action === 'load') return Promise.resolve({ ok:true, state:JSON.parse(localStorage.getItem('shiji-state') || '{}'), connected:false });
@@ -32,7 +35,7 @@
       return Promise.resolve({ ok:false, error:'浏览器仅供界面预览，请安装 APK 后登录同步。' });
     }
     return new Promise((resolve, reject) => {
-      const id = String(++nextId), timer = setTimeout(() => { pending.delete(id); reject(new Error('操作超时，请稍后重试')); }, 55000);
+      const id = String(++nextId), timer = setTimeout(() => { pending.delete(id); reject(new Error('操作超时，请稍后重试')); }, action==='downloadUpdate'?300000:55000);
       pending.set(id, { resolve, timer });
       window.NativeHub.call(id, action, JSON.stringify(args));
     });
@@ -57,42 +60,45 @@
     const tabs = [{ id:'home', label:'资产', icon:'wallet' }, { id:'todos', label:'待办', icon:'list' }, { id:'settings', label:'设置', icon:'settings' }];
     const views = { home:homeView, goals:goalsView, wealth:wealthView, allocation:allocationPage, settings:settingsView, connections:connectionsView, xiaoqing:xiaoqingView, 'module-settings':moduleSettingsView, todos:todosView, 'todo-library':todoLibraryView };
     app.innerHTML = `<main class="shell">
-      ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航">${tabs.map(t => { const active=page===t.id || t.id==='home' && ['goals','wealth','allocation'].includes(page) || t.id==='todos' && (page==='todo-library'||page==='module-settings'&&moduleSettingsReturn==='todos') || t.id==='settings' && (['connections','xiaoqing'].includes(page)||page==='module-settings'&&moduleSettingsReturn==='settings'); return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
+      ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航">${tabs.map(t => { const active=t.id===navRoot; return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
   }
-  function title(eyebrow, name, subtitle, button, backPage='') {
-    return `<div class="page-title ${backPage?'has-back':''}">${backPage?`<button class="title-back" data-action="nav" data-page="${esc(backPage)}" aria-label="返回${backPage==='todos'?'待办':'设置'}">${icon('arrow')}</button>`:''}<div class="page-heading">${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${name}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${button || ''}</div>`;
+  function title(eyebrow, name, subtitle, button, showBack=false) {
+    const back=showBack&&navHistory.length;
+    return `<div class="page-title ${back?'has-back':''}">${back?`<button class="title-back" data-action="back" aria-label="返回上一级">${icon('arrow')}</button>`:''}<div class="page-heading">${eyebrow ? `<div class="eyebrow">${eyebrow}</div>` : ''}<h1>${name}</h1>${subtitle ? `<p>${subtitle}</p>` : ''}</div>${button || ''}</div>`;
   }
   function homeView() {
-    const visible=C.PAGE_OPTIONS.wealth.filter(o=>pageOption('wealth',o.id));
+    const visible=C.WEALTH_BLOCKS.filter(o=>pageOption('wealth',o.id));
+    const blocks={
+      summary:()=>'<div class="section-head wealth-summary-heading"><h2>资产概览</h2></div>'+wealthWidget()+
+        (pageOption('wealth','trend')?homeTrend():'')+
+        (pageOption('wealth','accounts')?`<section class="section asset-link-section"><button class="settings-row asset-page-link" data-action="open-accounts"><span class="row-glyph">${icon('wallet')}</span><div><h3>账户列表</h3><p>${state.assets.length} 个账户 · 查看余额和分类</p></div>${icon('arrow')}</button></section>`:''),
+      goals:goalsWidget,allocation:allocationWidget
+    };
     return title('', '资产', '', `<button class="icon-btn" aria-label="资产页面设置" data-action="page-settings" data-id="wealth">${icon('settings')}</button>`) +
-      (pageOption('wealth','summary')?wealthWidget():'') +
-      (pageOption('wealth','accounts')?`<section class="section asset-link-section"><button class="settings-row asset-page-link" data-action="open-accounts"><span class="row-glyph">${icon('wallet')}</span><div><h3>账户列表</h3><p>${state.assets.length} 个账户 · 查看余额和分类</p></div>${icon('arrow')}</button></section>`:'') +
-      (pageOption('wealth','trend')?`<section class="section asset-link-section"><button class="settings-row asset-page-link" data-action="open-trend"><span class="row-glyph">${icon('trend')}</span><div><h3>资产趋势</h3><p>${state.history.length} 天记录 · 查看资产变化</p></div>${icon('arrow')}</button></section>`:'') +
-      (pageOption('wealth','goals')?goalsWidget():'') +
-      (pageOption('wealth','allocation')?allocationWidget():'') +
+      state.wealthOrder.filter(id=>pageOption('wealth',id)).map(id=>`<div class="wealth-block" data-block="${id}">${blocks[id]()}</div>`).join('')+
       (!visible.length?emptyCard('资产页还没有内容','在设置里选择要显示的模块。','open-modules','设置资产页','grid'):'');
   }
   function homeTrend() {
-    const entries = state.history;
-    if (entries.length < 2) return '';
-    const values = entries.map(e => e.total), low = Math.min(...values), high = Math.max(...values), span = high-low || 1;
-    const start = C.dateDay(entries[0].date), days = C.dateDay(entries[entries.length-1].date)-start || 1;
-    const points = entries.map(e => `${((C.dateDay(e.date)-start)/days*300).toFixed(1)},${(55-(e.total-low)/span*45).toFixed(1)}`).join(' ');
-    return `<svg class="home-trend" viewBox="0 0 300 64" preserveAspectRatio="none" role="img" aria-label="计入资产走势"><polyline points="${points}" fill="none" stroke="currentColor" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg><div class="home-trend-labels"><span>${esc(entries[0].date)}</span><span>${esc(entries[entries.length-1].date)}</span></div>`;
+    const entries=state.history, change=C.monthChange(state), tone=change>0?'up':change<0?'down':'flat';
+    let chart='<div class="overview-trend-empty">同步几天资产后，这里会出现趋势线</div>';
+    if(entries.length>1){
+      const values=entries.map(e=>e.total),low=Math.min(...values),high=Math.max(...values),span=high-low||1;
+      const start=C.dateDay(entries[0].date),days=C.dateDay(entries[entries.length-1].date)-start||1;
+      const points=entries.map(e=>({x:((C.dateDay(e.date)-start)/days*300).toFixed(1),y:(70-(e.total-low)/span*52).toFixed(1)}));
+      const lines=points.slice(1).map((p,i)=>`<line x1="${points[i].x}" y1="${points[i].y}" x2="${p.x}" y2="${p.y}" stroke="${values[i+1]>values[i]?'#2a9b79':values[i+1]<values[i]?'#e46f72':'#8b9bb3'}" stroke-width="2.7" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`).join('');
+      chart=`<svg class="overview-trend-chart" viewBox="0 0 300 88" preserveAspectRatio="none" role="img" aria-label="资产趋势，绿色表示增加，红色表示减少">${lines}</svg><div class="overview-trend-dates"><span>${esc(entries[0].date)}</span><span>${esc(entries[entries.length-1].date)}</span></div>`;
+    }
+    return `<button class="card overview-trend" data-action="open-trend"><div class="overview-trend-top"><strong>资产趋势</strong><span>本月 <b class="${tone}">${change==null?'—':change>0?'+'+yuan(change):change<0?'−'+yuan(-change):yuan(0)}</b></span></div>${chart}</button>`;
   }
   function wealthWidget() {
-    const t = C.totals(state), change = C.monthChange(state), assets = hasAssets();
-    const active = state.goals.filter(g => !C.goalMetrics(state,g).complete).length;
-    return `<section><div class="hero"><div class="hero-label">当前总资产 ${state.demo ? '<span class="chip gold">示例</span>' : ''}</div>
-      <div class="asset-value">${assets ? `<span class="currency-symbol">¥</span>${money(t.total,2)}` : '等待第一笔同步'}</div>
-      <p class="hero-sub">${assets ? `${t.included} 个计入账户 · ${t.excluded} 个“不计入”账户已排除` : '连接小青账后显示资产和目标进度'}</p>
-      ${homeTrend()}<div class="hero-bottom"><small>${assets ? `最近同步 ${syncLabel()}` : '尚未同步'}</small><button class="sync ${busy ? 'busy' : ''}" data-action="${connected?'sync':'connect'}" ${busy ? 'disabled' : ''}>${icon('sync')}${busy ? '同步中' : connected ? '同步资产' : '连接账户'}</button></div></div>
-      ${t.foreign ? `<div class="warning-note">${t.foreign} 个外币账户暂未折算，未计入人民币目标，请在小青账核对。</div>` : ''}
-      <div class="stat-grid"><div class="mini-stat"><div class="label">${icon('trend')}本月资产变化</div><strong>${change == null ? '—' : (change > 0 ? '+' : '') + yuan(change)}</strong><small>${change == null ? '需要月初或更早的余额记录' : '含资产价格涨跌和账户变动'}</small></div><div class="mini-stat"><div class="label">${icon('flag')}正在靠近的目标</div><strong>${active}<span class="muted" style="font-size:11px;font-weight:400"> 个</span></strong><small>${state.goals.length ? '按各自截止日期追踪' : '为未来，先起一个名字'}</small></div></div></section>`;
+    const t=C.totals(state), assets=hasAssets();
+    return `<section><div class="hero"><div class="overview-hero-top"><div class="hero-label">当前总资产</div><div class="overview-sync"><button class="sync ${busy?'busy':''}" data-action="${connected?'sync':'connect'}" ${busy?'disabled':''}>${icon('sync')}${busy?'同步中':connected?'同步资产':'连接账户'}</button><small>${assets?syncLabel():'尚未同步'}</small></div></div><div class="asset-value">${assets?`<span class="currency-symbol">¥</span>${money(t.total,2)}`:'等待第一笔同步'}</div></div>${t.foreign?`<div class="warning-note">${t.foreign} 个外币账户暂未折算，未计入人民币目标，请在小青账核对。</div>`:''}</section>`;
   }
   function goalsWidget() {
-    return `<section class="section"><div class="section-head"><h2>存钱目标 <span class="section-count">${state.goals.length}</span></h2><button class="subtle" data-action="nav" data-page="goals">全部目标${icon('arrow')}</button></div>${state.goals.length ? state.goals.slice(0,2).map(goalCard).join('') : emptyCard('设置第一个存钱目标','填写金额和截止日期，进度会随资产更新。','add-goal','新建目标')}</section>`;
+    const goals=state.goals.filter(g=>g.visible!==false);
+    return `<section class="section"><div class="section-head"><h2>存钱目标 <span class="section-count">${goals.length}</span></h2><button class="subtle" data-action="nav" data-page="goals">全部目标${icon('arrow')}</button></div>${goals.length ? goals.slice(0,2).map(goalCard).join('') : state.goals.length?emptyCard('暂无展示的目标','','open-goal-settings','设置目标'):emptyCard('设置第一个存钱目标','填写金额和截止日期，进度会随资产更新。','add-goal','新建目标')}</section>`;
   }
+  function goalStatus(g) {const m=C.goalMetrics(state,g);return m.complete?'completed':m.overdue?'missed':'active';}
   function goalCard(g, tailored = false) {
     const m = C.goalMetrics(state,g), tag = m.complete ? '已达成' : m.overdue ? '已逾期' : `剩余 ${m.days} 天`;
     return `<button class="card goal-card" data-action="goal-detail" data-id="${esc(g.id)}"><div class="goal-top"><div class="goal-icon">${icon(g.scope === 'all' ? 'flag' : 'pie')}</div><div class="goal-title"><h3>${esc(g.name)}</h3><small>${esc(g.deadline)} 截止 · ${catName(g.scope)}</small></div><span class="chip ${m.complete ? 'green' : m.overdue ? 'warn' : 'gray'}">${tag}</span></div>
@@ -107,23 +113,24 @@
     return `<section class="section"><div class="section-head"><h2>资产配置</h2><button class="subtle" data-action="assets-allocation">查看详情${icon('arrow')}</button></div><div class="card"><div class="allocation-top"><div class="donut" style="--segments:${gradient}"><div class="donut-hole"><strong>${t.total > 0 ? '100%' : '—'}</strong><span>资产配置</span></div></div><div class="allocation-legend">${rows.map(r => `<div class="legend-row"><span class="legend-name"><i class="dot" style="background:${r.color}"></i>${esc(r.name)}</span><b>${money(r.share,1)}%</b></div>`).join('')}</div></div><p class="allocation-note">${unclassified ? `${unclassified} 个计入账户尚在“其他”类别，可在账户页归类。` : hasAssets() ? '为股票、债券、现金设置自己的配置目标。' : '连接资产后查看各类别占比。'}${t.total <= 0 ? '' : ' 圆环展示正余额构成。'}</p></div></section>`;
   }
   function goalsView() {
-    const visible=state.goals.filter(g=>pageOption('goals','completed')||!C.goalMetrics(state,g).complete);
-    return title('','长期目标','为每个目标设定自己的时间和金额。',`<button class="icon-btn" aria-label="新建目标" data-action="add-goal">${icon('plus')}</button>`) +
-      `<div class="goal-tab-controls"><span class="subtle">${visible.length} 个目标 · 独立截止日期</span><span class="chip green">${state.goals.filter(g => C.goalMetrics(state,g).complete).length} 个已达成</span></div>` +
-      (visible.length ? visible.map(g=>goalCard(g,true)).join('') : state.goals.length ? hint('已完成目标已隐藏，可以在这个功能的设置中重新显示。') : emptyCard('未来的你，会感谢今天','设置目标金额和截止日期，进度会随资产同步更新。','add-goal','创建长期目标')) +
+    const visible=state.goals.filter(g=>g.visible!==false), filtered=goalFilter==='all'?visible:visible.filter(g=>goalStatus(g)===goalFilter);
+    const tabs=[['all','全部'],['active','进行中'],['completed','已达成'],['missed','未达成']];
+    return title('','存钱目标','为每个目标设定自己的时间和金额。',`<div class="page-actions"><button class="icon-btn" aria-label="新建目标" data-action="add-goal">${icon('plus')}</button><button class="icon-btn" aria-label="目标设置" data-action="open-goal-settings">${icon('settings')}</button></div>`,true) +
+      `<div class="goal-filter-tabs" role="tablist" aria-label="目标状态">${tabs.map(([id,label])=>`<button role="tab" aria-selected="${goalFilter===id}" class="${goalFilter===id?'selected':''}" data-action="goal-filter" data-filter="${id}">${label}</button>`).join('')}</div>` +
+      (filtered.length ? filtered.map(g=>goalCard(g,true)).join('') : visible.length || state.goals.length ? emptyCard('这里还没有目标','','','') : emptyCard('未来的你，会感谢今天','设置目标金额和截止日期，进度会随资产同步更新。','add-goal','创建长期目标')) +
       '<p class="footnote">目标按所选资产口径分别计算；共享同一份资产的目标属于阶段里程碑，不代表资金已独立分配，不能把它们的已攒金额相加。</p>';
   }
   function wealthView() {
     const t=C.totals(state);
     const sections=['accounts','trend'].filter(id=>pageOption('wealth',id));
     const selected=sections.includes(wealthTab)?wealthTab:sections[0];
-    return title('','资产统计','账户余额与资产变化。') +
+    return title('','资产统计','账户余额与资产变化。','',true) +
       (pageOption('wealth','summary') ? `<div class="card wealth-summary"><span>计入资产</span><strong>${hasAssets()?yuan(t.total):'—'}</strong><small>${t.included} 个计入账户 · ${t.excluded} 个不计入账户</small></div>` : '') +
       (sections.length>1 ? `<div class="split-tabs wealth-tabs"><button data-action="wealth-tab" data-tab="accounts" class="${selected === 'accounts' ? 'selected' : ''}">账户</button><button data-action="wealth-tab" data-tab="trend" class="${selected === 'trend' ? 'selected' : ''}">趋势</button></div>` : '') +
       (selected === 'accounts' ? accountsView() : selected === 'trend' ? trendView() : hint('这个页面的内容已全部关闭。可在资产统计设置中重新开启。'));
   }
   function allocationPage() {
-    return title('','资产配置','查看每类资产距离目标还有多远。') + allocationView();
+    return title('','资产配置','查看每类资产距离目标还有多远。','',true) + allocationView();
   }
   function allocationView() {
     const rows = C.allocation(state);
@@ -172,13 +179,13 @@
   }
   function todoLibraryView() {
     const undated=state.tasks.filter(t=>!t.done&&!Number.isFinite(C.dateDay(t.deadline))).slice().reverse();
-    return title('','待办库','',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`,'todos')+
+    return title('','待办库','',`<button class="icon-btn" aria-label="添加待办" data-action="add-task">${icon('plus')}</button>`,true)+
       (undated.length?taskGroup('未安排',undated,'undated',true):'')+
       (!undated.length?emptyCard('没有未安排的待办','','add-task','添加待办','archive'):'');
   }
   function settingsView() {
     return title('','设置','管理每个页面显示的内容。') +
-      `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="page-settings" data-id="wealth"><span class="row-glyph">${icon('wallet')}</span><div><h3>资产页面</h3><p>概览、账户、趋势、长期目标、资产配置</p></div>${icon('arrow')}</button><button class="settings-row" data-action="page-settings" data-id="todos"><span class="row-glyph">${icon('list')}</span><div><h3>待办页面</h3><p>已完成事项</p></div>${icon('arrow')}</button></div></section>` +
+      `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="page-settings" data-id="wealth"><span class="row-glyph">${icon('wallet')}</span><div><h3>资产页面</h3><p>资产概览、存钱目标、资产配置</p></div>${icon('arrow')}</button><button class="settings-row" data-action="page-settings" data-id="todos"><span class="row-glyph">${icon('list')}</span><div><h3>待办页面</h3><p>已完成事项</p></div>${icon('arrow')}</button></div></section>` +
       `<section class="settings-section"><h2>连接与数据</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="connections"><span class="row-glyph">${icon('sync')}</span><div><h3>连接管理</h3><p>${connected?'已连接小青账 · 管理外部服务':'管理小青账与其他外部服务'}</p></div>${icon('arrow')}</button></div></section>` +
       `<section class="settings-section"><h2>应用</h2><div class="settings-group"><button class="settings-row" data-action="check-update"><span class="row-glyph">${icon('sync')}</span><div><h3>检查更新</h3></div>${icon('arrow')}</button></div></section>`;
   }
@@ -203,40 +210,69 @@
       const latest = esc(result.latestVersion);
       const newer = Number.isInteger(result.latestCode) && Number.isInteger(result.currentCode)
         ? result.latestCode > result.currentCode : newerVersion(result.latestVersion, result.currentVersion);
-      status.innerHTML = `<strong>${newer ? '发现新版本' : '已是最新版本'}</strong><span>当前 ${current} · 最新 ${latest}</span>${newer ? `<button class="primary full" data-action="open-update" data-url="${esc(result.url)}">查看更新</button>` : ''}`;
+      status.innerHTML = `<strong>${newer ? '发现新版本' : '已是最新版本'}</strong><span>当前 ${current} · 最新 ${latest}</span>${newer ? '<button class="primary full" data-action="download-update">下载安装</button>' : ''}`;
     } catch (error) { if (status.isConnected) status.textContent = error.message || '检查更新失败'; }
   }
   function connectionsView() {
-    return `<button class="back-link" data-action="nav" data-page="settings">${icon('arrow')}设置</button>` + title('','连接管理','集中管理与外部服务的数据连接。') +
+    return title('','连接管理','集中管理与外部服务的数据连接。','',true) +
       `<section class="settings-section"><h2>已支持的服务</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="xiaoqing"><div><h3>小青账</h3><p>${connected?`已连接 · 最近同步 ${syncLabel()}`:'未连接 · 读取资产账户'}</p></div>${icon('arrow')}</button></div><p class="settings-note">以后接入其他服务时，会在这里分别管理。</p></section>`;
   }
   function xiaoqingView() {
-    return `<button class="back-link" data-action="nav" data-page="connections">${icon('arrow')}连接管理</button>` + title('','小青账','只读同步资产账户。') +
+    return title('','小青账','只读同步资产账户。','',true) +
       `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
   }
   function optionRows(id, pageName) {
     return C.PAGE_OPTIONS[id].map(option => `<div class="settings-toggle-row"><div><h3>${option.name}</h3></div><button class="switch ${pageOption(id,option.id)?'on':''}" role="switch" aria-checked="${pageOption(id,option.id)}" aria-label="在${pageName}页面显示${option.name}" data-action="toggle-page-option" data-module="${id}" data-option="${option.id}"><i></i></button></div>`).join('');
   }
+  function orderButtons(type,id,index,total) {
+    return `<div class="sort-actions"><button class="sort-handle" data-drag-handle="${type}" aria-label="拖动排序">☷</button><button data-action="move-item" data-type="${type}" data-id="${esc(id)}" data-step="-1" aria-label="上移" ${index===0?'disabled':''}>↑</button><button data-action="move-item" data-type="${type}" data-id="${esc(id)}" data-step="1" aria-label="下移" ${index===total-1?'disabled':''}>↓</button></div>`;
+  }
+  function wealthSettingsSection(id,index) {
+    const block=C.WEALTH_BLOCKS.find(b=>b.id===id), detail=id==='goals'?optionRows('goals','存钱目标'):id==='allocation'?optionRows('allocation','资产配置'):'';
+    const inner=id==='summary'?C.PAGE_OPTIONS.wealth.filter(o=>['accounts','trend'].includes(o.id)).map(o=>`<div class="settings-toggle-row"><h3>${o.name}</h3><button class="switch ${pageOption('wealth',o.id)?'on':''}" role="switch" aria-checked="${pageOption('wealth',o.id)}" aria-label="显示${o.name}" data-action="toggle-page-option" data-module="wealth" data-option="${o.id}"><i></i></button></div>`).join(''):detail;
+    const goals=id==='goals'?`<div class="settings-subhead">目标展示与顺序</div>${state.goals.map((g,i)=>`<div class="goal-settings-row" data-sort-type="goal" data-sort-id="${esc(g.id)}">${orderButtons('goal',g.id,i,state.goals.length)}<span>${esc(g.name)}</span><button class="switch ${g.visible!==false?'on':''}" role="switch" aria-checked="${g.visible!==false}" aria-label="显示${esc(g.name)}" data-action="toggle-goal-visible" data-id="${esc(g.id)}"><i></i></button></div>`).join('')}`:'';
+    return `<section class="settings-section sortable-section" data-sort-type="wealth" data-sort-id="${id}"><div class="settings-block-head"><h2>${block.name}</h2>${orderButtons('wealth',id,index,3)}<button class="switch ${pageOption('wealth',id)?'on':''}" role="switch" aria-checked="${pageOption('wealth',id)}" aria-label="显示${block.name}" data-action="toggle-page-option" data-module="wealth" data-option="${id}"><i></i></button></div><div class="settings-group">${inner}${goals}${id==='allocation'?`<button class="settings-row" data-action="categories"><h3>资产类别与账户</h3>${icon('arrow')}</button>`:''}</div></section>`;
+  }
   function moduleSettingsView() {
     const id=moduleSettingsId==='todos'?'todos':'wealth', name=id==='todos'?'待办':'资产';
-    const detail=id==='wealth'?`<section class="settings-section"><h2>长期目标详情</h2><div class="settings-group">${optionRows('goals','长期目标')}</div></section><section class="settings-section"><h2>资产配置详情</h2><div class="settings-group">${optionRows('allocation','资产配置')}</div></section>`:'';
-    return title('',name+'页面','选择这个页面要显示的模块。','',moduleSettingsReturn) +
-      `<section class="settings-section"><h2>页面模块</h2><div class="settings-group">${optionRows(id,name)}</div></section>`+detail;
+    return title('',name+'页面','选择这个页面要显示的模块。','',true) +
+      (id==='wealth'?state.wealthOrder.map(wealthSettingsSection).join(''):`<section class="settings-section"><h2>页面模块</h2><div class="settings-group">${optionRows(id,name)}</div></section>`);
   }
   function openSheet(titleText, body, dialogClass='') {
+    datePicker=null;
     overlay.innerHTML = `<div class="backdrop ${esc(dialogClass)}"><section class="sheet" role="dialog" aria-modal="true" aria-label="${esc(titleText)}"><div class="handle"></div><div class="sheet-head"><h2>${esc(titleText)}</h2><button class="icon-btn" aria-label="关闭" data-action="close">${icon('close')}</button></div>${body}</section></div>`;
     document.body.style.overflow='hidden';
     setTimeout(()=>overlay.querySelector('input:not([type="date"]):not([type="checkbox"])')?.focus(),160);
   }
-  function closeSheet() { overlay.innerHTML=''; document.body.style.overflow=''; }
+  function closeSheet() { datePicker=null;overlay.innerHTML=''; document.body.style.overflow=''; }
+  function closeDatePicker() { overlay.querySelector('.date-picker-backdrop')?.remove();datePicker=null; }
+  function openDatePicker(button) {
+    const input=button.closest('form').elements.deadline, selected=input.value||C.today();
+    datePicker={input,button,year:Number(selected.slice(0,4)),month:Number(selected.slice(5,7)),mode:'days',required:button.dataset.required==='true'};
+    overlay.insertAdjacentHTML('beforeend','<div class="date-picker-backdrop"><section class="date-picker" role="dialog" aria-modal="true" aria-label="选择日期"></section></div>');
+    renderDatePicker();
+  }
+  function renderDatePicker() {
+    if(!datePicker)return;
+    const p=datePicker, panel=overlay.querySelector('.date-picker');
+    if(p.mode==='years') {
+      panel.innerHTML=`<div class="date-picker-head"><strong>选择年份</strong><button class="date-picker-close" data-action="close-date-picker" aria-label="关闭">${icon('close')}</button></div><div class="date-years">${Array.from({length:201},(_,i)=>1900+i).map(y=>`<button class="${y===p.year?'selected':''}" data-action="select-year" data-year="${y}">${y}</button>`).join('')}</div>`;
+      panel.querySelector('.date-years .selected')?.scrollIntoView({block:'center'});
+      return;
+    }
+    const first=new Date(p.year,p.month-1,1).getDay(), offset=(first+6)%7, count=new Date(p.year,p.month,0).getDate();
+    const chosen=p.input.value;
+    const days=Array.from({length:offset},()=>'<span></span>').concat(Array.from({length:count},(_,i)=>{const d=i+1, value=`${p.year}-${String(p.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`;return `<button class="${value===chosen?'selected':''}" data-action="select-day" data-day="${d}" aria-label="${value}">${d}</button>`;})).join('');
+    panel.innerHTML=`<div class="date-picker-head"><button class="date-year-button" data-action="show-years">${p.year} 年 ${icon('arrow')}</button><button class="date-picker-close" data-action="close-date-picker" aria-label="关闭">${icon('close')}</button></div><div class="date-month-head"><button data-action="date-month" data-step="-1" aria-label="上个月">${icon('arrow')}</button><strong>${p.month} 月</strong><button data-action="date-month" data-step="1" aria-label="下个月">${icon('arrow')}</button></div><div class="date-weekdays">${['一','二','三','四','五','六','日'].map(d=>`<span>${d}</span>`).join('')}</div><div class="date-days">${days}</div>${p.required?'':'<button class="date-clear" data-action="clear-date">清除日期</button>'}`;
+  }
   function formError(text) { const el=overlay.querySelector('.form-error'); if(el)el.textContent=text; else toast(text); }
   function taskForm(id) {
     const task=state.tasks.find(t=>t.id===id);
-    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><label class="form-field"><span>待完成日期</span><input name="deadline" type="date" value="${esc(task?.deadline||'')}"></label><label class="form-field"><span>优先级</span><select name="priority"><option value="low" ${task?.priority==='low'?'selected':''}>低</option><option value="medium" ${!task||task.priority==='medium'?'selected':''}>中</option><option value="high" ${task?.priority==='high'?'selected':''}>高</option></select></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label>${dateField('待完成日期',task?.deadline)}<label class="form-field"><span>优先级</span><select name="priority"><option value="low" ${task?.priority==='low'?'selected':''}>低</option><option value="medium" ${!task||task.priority==='medium'?'selected':''}>中</option><option value="high" ${task?.priority==='high'?'selected':''}>高</option></select></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
   }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
-    openSheet(g?'编辑目标':'给未来起个名字',`<form data-form="goal" data-id="${esc(id||'')}"><label class="form-field"><span>目标名称</span><input name="name" maxlength="40" placeholder="例如：攒下第一笔底气" value="${esc(g?.name||'')}" required></label><label class="form-field"><span>目标金额 · 人民币</span><input name="amount" type="number" inputmode="decimal" min="0.01" max="1000000000000" step="0.01" placeholder="200000" value="${g?.amount||''}" required></label><label class="form-field"><span>截止日期</span><input name="deadline" type="date" value="${esc(g?.deadline||C.today(date))}" required></label><label class="form-field"><span>用哪部分资产计算进度</span><select name="scope"><option value="all">全部计入资产</option>${C.categories(state).map(c=>`<option value="${c.id}" ${g?.scope===c.id?'selected':''}>只看${esc(c.name)}</option>`).join('')}</select><small>按小青账“不计入”标签排除账户。多个目标可以共享同一份资产。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${g?'保存目标':'开始靠近目标'}</button>${g?'<button type="button" class="text-btn danger full" data-action="delete-goal-confirm" data-id="'+esc(id)+'">删除这个目标</button>':''}</form>`);
+    openSheet(g?'编辑目标':'给未来起个名字',`<form data-form="goal" data-id="${esc(id||'')}"><label class="form-field"><span>目标名称</span><input name="name" maxlength="40" placeholder="例如：攒下第一笔底气" value="${esc(g?.name||'')}" required></label><label class="form-field"><span>目标金额 · 人民币</span><input name="amount" type="number" inputmode="decimal" min="0.01" max="1000000000000" step="0.01" placeholder="200000" value="${g?.amount||''}" required></label>${dateField('截止日期',g?.deadline||C.today(date),true)}<label class="form-field"><span>用哪部分资产计算进度</span><select name="scope"><option value="all">全部计入资产</option>${C.categories(state).map(c=>`<option value="${c.id}" ${g?.scope===c.id?'selected':''}>只看${esc(c.name)}</option>`).join('')}</select><small>按小青账“不计入”标签排除账户。多个目标可以共享同一份资产。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${g?'保存目标':'开始靠近目标'}</button>${g?'<button type="button" class="text-btn danger full" data-action="delete-goal-confirm" data-id="'+esc(id)+'">删除这个目标</button>':''}</form>`);
   }
   function goalDetail(id) {
     const g=state.goals.find(g=>g.id===id);if(!g)return;
@@ -269,23 +305,53 @@
     openSheet(a?'编辑手动账户':'添加手动账户',`<form data-form="manual" data-id="${esc(a?.code||'')}">${hint('手动账户独立于小青账同步。避免把已同步账户再次手动添加，否则会重复计算。')}<label class="form-field"><span>账户名称</span><input name="name" maxlength="40" value="${esc(a?.name||'')}" required></label><label class="form-field"><span>当前余额 · 人民币</span><input name="balance" type="number" inputmode="decimal" step="0.01" max="1000000000000" min="-1000000000000" value="${a?.balance??''}" required><small>负债填写负数，余额可随时手动更新。</small></label><label class="form-field"><span>资产类别</span><select name="category">${C.categories(state).map(c=>`<option value="${c.id}" ${a&&C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label class="checkbox-label"><input type="checkbox" name="exclude" ${a?.reckonIn?'checked':''}>不计入目标</label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存账户</button>${a?`<button type="button" class="text-btn danger full" data-action="delete-manual-confirm" data-id="${esc(a.code)}">删除手动账户</button>`:''}</form>`);
   }
   function categoryList() {
-    openSheet('管理资产类别',hint('股票、债券、现金之外，也可以添加黄金、基金等自己的类别。改名不会改变账户归属。')+
-      C.categories(state).map(c=>`<button class="settings-row" data-action="category-edit" data-id="${esc(c.id)}"><h3><i class="dot" style="background:${c.color};margin-right:9px"></i>${esc(c.name)}</h3>${icon('edit')}</button>`).join('')+
-      '<button class="secondary full" style="margin-top:20px" data-action="category-edit">＋ 新增类别</button>');
+    const categories=C.categories(state);
+    openSheet('资产类别',`<div class="category-sort-list">${categories.map((c,i)=>`<div class="category-sort-row" data-sort-type="category" data-sort-id="${esc(c.id)}">${orderButtons('category',c.id,i,categories.length)}<button class="category-sort-edit" data-action="category-edit" data-id="${esc(c.id)}"><i class="dot" style="background:${c.color}"></i><span>${esc(c.name)}</span><small>${state.assets.filter(a=>C.category(state,a)===c.id).length} 个账户</small>${icon('arrow')}</button></div>`).join('')}</div><button class="secondary full" style="margin-top:20px" data-action="category-edit">＋ 新增类别</button>`);
   }
   function categoryForm(id) {
     const c=C.categories(state).find(c=>c.id===id);
-    openSheet(c?'编辑资产类别':'新的资产类别',`<form data-form="category" data-id="${esc(c?.id||'')}"><label class="form-field"><span>类别名称</span><input name="name" maxlength="12" value="${esc(c?.name||'')}" placeholder="例如：黄金" required></label><label class="form-field"><span>标记颜色</span><input name="color" type="color" value="${c?.color||'#b89356'}"></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存类别</button>${c&&c.id!=='other'?'<button class="text-btn danger full" type="button" data-action="category-delete-confirm" data-id="'+esc(c.id)+'">删除类别</button>':''}</form>`);
+    const accounts=state.assets.map(a=>{const current=C.category(state,a), assigned=c&&current===c.id, locked=c?.id==='other'&&assigned;return `<label class="category-account"><input type="checkbox" name="account" value="${esc(a.code)}" ${assigned?'checked':''} ${locked?'disabled':''}><span><strong>${esc(a.name)}</strong><small>${a.reckonIn?'不计入 · ':''}${esc(C.categories(state).find(x=>x.id===current)?.name||'其他')}</small></span></label>`;}).join('');
+    openSheet(c?'编辑资产类别':'新的资产类别',`<form data-form="category" data-id="${esc(c?.id||'')}"><label class="form-field"><span>类别名称</span><input name="name" maxlength="12" value="${esc(c?.name||'')}" placeholder="例如：黄金" required></label><label class="form-field"><span>标记颜色</span><input name="color" type="color" value="${c?.color||'#b89356'}"></label><div class="category-account-section"><h3>包含账户</h3>${accounts||'<p class="category-no-accounts">暂无账户</p>'}</div><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存类别</button>${c&&c.id!=='other'?'<button class="text-btn danger full" type="button" data-action="category-delete-confirm" data-id="'+esc(c.id)+'">删除类别</button>':''}</form>`);
   }
   function confirm(titleText, message, action, id) {
     openSheet(titleText,`<p class="footnote" style="font-size:13px;margin:0 0 24px">${message}</p><div class="form-actions"><button class="secondary" data-action="close">取消</button><button class="primary" data-action="${action}" data-id="${esc(id||'')}">确认</button></div>`);
   }
-  function navigate(next) {closeSheet();page=next;render();window.scrollTo(0,0);}
+  function navigate(next,root=false) {
+    if(!next||next===page)return;
+    closeSheet();
+    if(root){navRoot=next;navHistory=[];}else navHistory.push(page);
+    page=next;render();window.scrollTo(0,0);
+  }
+  function reorderItem(type,id,target) {
+    const list=type==='wealth'?state.wealthOrder:type==='category'?state.categories:type==='goal'?state.goals:null;
+    if(!list)return;
+    const key=x=>typeof x==='string'?x:x.id, from=list.findIndex(x=>key(x)===id), to=list.findIndex(x=>key(x)===target);
+    if(from<0||to<0||from===to)return;
+    list.splice(to,0,list.splice(from,1)[0]);save();render();
+    if(type==='category')categoryList();
+  }
+  function goBack() {
+    if(datePicker){closeDatePicker();return true;}
+    if(overlay.innerHTML){closeSheet();return true;}
+    if(navHistory.length){page=navHistory.pop();render();window.scrollTo(0,0);return true;}
+    if(page!==navRoot){page=navRoot;render();return true;}
+    return false;
+  }
   const handlers = {
-    nav:el=>navigate(el.dataset.page), close:closeSheet, connect:()=>navigate('xiaoqing'),
+    nav:el=>navigate(el.dataset.page,el.classList.contains('nav-item')), back:goBack, close:closeSheet, connect:()=>navigate('xiaoqing'),
+    'pick-date':openDatePicker,
+    'move-item':el=>{const type=el.dataset.type,list=type==='wealth'?state.wealthOrder:type==='category'?state.categories:type==='goal'?state.goals:null;if(!list)return;const ids=list.map(x=>typeof x==='string'?x:x.id),index=ids.indexOf(el.dataset.id),target=ids[index+Number(el.dataset.step)];if(target)reorderItem(type,el.dataset.id,target);},
+    'close-date-picker':closeDatePicker,
+    'show-years':()=>{datePicker.mode='years';renderDatePicker();},
+    'select-year':el=>{datePicker.year=Number(el.dataset.year);datePicker.mode='days';renderDatePicker();},
+    'date-month':el=>{const d=new Date(datePicker.year,datePicker.month-1+Number(el.dataset.step),1);datePicker.year=d.getFullYear();datePicker.month=d.getMonth()+1;renderDatePicker();},
+    'select-day':el=>{const p=datePicker,value=`${p.year}-${String(p.month).padStart(2,'0')}-${String(el.dataset.day).padStart(2,'0')}`;p.input.value=value;p.button.querySelector('span').textContent=value;closeDatePicker();},
+    'clear-date':()=>{datePicker.input.value='';datePicker.button.querySelector('span').textContent='选择日期';closeDatePicker();},
     'check-update':checkUpdate,
-    'open-update':async el=>{const result=await call('openUpdate',{url:el.dataset.url});if(!result.ok)toast(result.error||'无法打开更新页面');},
-    'open-modules':()=>navigate('settings'), 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
+    'download-update':async el=>{el.disabled=true;el.textContent='正在下载并校验…';try{const result=await call('downloadUpdate');if(!result.ok)toast(result.error||'下载失败，请重试');else closeSheet();}catch(e){toast(e.message||'下载失败，请重试');}finally{if(el.isConnected){el.disabled=false;el.textContent='下载安装';}}},
+    'open-modules':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'open-goal-settings':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
+    'goal-filter':el=>{goalFilter=el.dataset.filter;render();},
+    'toggle-goal-visible':el=>{const g=state.goals.find(x=>x.id===el.dataset.id);if(!g)return;g.visible=g.visible===false;save();render();},
     'goal-detail':el=>goalDetail(el.dataset.id), 'assets-allocation':()=>navigate('allocation'),
     'wealth-tab':el=>{wealthTab=el.dataset.tab;render();}, 'allocation-edit':allocationForm, login:loginSheet,sync,
     'manual-asset':el=>manualAssetForm(el.dataset.id),
@@ -306,7 +372,7 @@
     'delete-manual-confirm':el=>confirm('删除手动账户？','该账户的余额将不再计入目标；不会修改小青账。','delete-manual',el.dataset.id),
     'delete-manual':el=>{state.assets=state.assets.filter(a=>a.code!==el.dataset.id);delete state.categoryMap[el.dataset.id];C.recordSnapshot(state);save();closeSheet();render();},
     'toggle-page-option':el=>{const moduleId=el.dataset.module, optionId=el.dataset.option;if(!C.PAGE_OPTIONS[moduleId]?.some(o=>o.id===optionId))return;state.pageOptions[moduleId][optionId]=!pageOption(moduleId,optionId);save();render();},
-    'page-settings':el=>{moduleSettingsId=el.dataset.id;moduleSettingsReturn=page==='todos'?'todos':'settings';navigate('module-settings');},
+    'page-settings':el=>{moduleSettingsId=el.dataset.id;navigate('module-settings');},
     'open-accounts':()=>{wealthTab='accounts';navigate('wealth');},
     'open-trend':()=>{wealthTab='trend';navigate('wealth');},
     'add-task':()=>taskForm(), 'edit-task':el=>taskForm(el.dataset.id),
@@ -317,7 +383,11 @@
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
     logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
-  document.addEventListener('click',e=>{if(e.target.classList.contains('backdrop')){closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
+  document.addEventListener('click',e=>{if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('backdrop')){closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
+  document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;dragState={type:row.dataset.sortType,id:row.dataset.sortId,target:null,startX:e.clientX,startY:e.clientY,pointerId:e.pointerId};handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
+  document.addEventListener('pointermove',e=>{if(!dragState||e.pointerId!==dragState.pointerId)return;if(Math.hypot(e.clientX-dragState.startX,e.clientY-dragState.startY)<8)return;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));const row=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-sort-id]');if(row&&row.dataset.sortType===dragState.type&&row.dataset.sortId!==dragState.id){dragState.target=row.dataset.sortId;row.classList.add('sort-over');}else dragState.target=null;});
+  document.addEventListener('pointerup',e=>{if(!dragState||e.pointerId!==dragState.pointerId)return;const {type,id,target}=dragState;dragState=null;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));if(target)reorderItem(type,id,target);});
+  document.addEventListener('pointercancel',()=>{dragState=null;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));});
   document.addEventListener('change',e=>{
     if(e.target.dataset.categoryCode){state.categoryMap[e.target.dataset.categoryCode]=e.target.value;rebaseCategoryGoals();C.recordSnapshot(state);save();render();toast('账户分类已保存');}
     if(e.target.id==='allocation-mode'){overlay.querySelectorAll('.unit').forEach(el=>el.textContent=e.target.value==='percent'?'%':'元');overlay.querySelector('#allocation-help').textContent=e.target.value==='percent'?'比例目标合计需为 100%。':'金额目标独立于总资产变化。';}
@@ -351,6 +421,10 @@
       const cat={id,name:data.name.trim(),color:data.color};
       const idx=state.categories.findIndex(c=>c.id===id);if(idx>=0)state.categories[idx]=cat;else state.categories.push(cat);
       if(state.allocationTargets[id]==null)state.allocationTargets[id]=0;
+      const selected=new Set(new FormData(form).getAll('account'));
+      let changed=false;
+      for(const asset of state.assets){const current=C.category(state,asset);if(selected.has(asset.code)&&current!==id){state.categoryMap[asset.code]=id;changed=true;}else if(!selected.has(asset.code)&&current===id&&id!=='other'){state.categoryMap[asset.code]='other';changed=true;}}
+      if(changed){rebaseCategoryGoals();C.recordSnapshot(state);}
       save();categoryList();render();toast('资产类别已保存');
     }else if(type==='login'){
       if(state.demo){formError('请先退出示例模式，再连接真实账户');return;}
@@ -360,7 +434,7 @@
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
     }
   });
-  window.hubBack=()=>{if(overlay.innerHTML){closeSheet();return true;}if(page==='xiaoqing'){navigate('connections');return true;}if(page==='connections'){navigate('settings');return true;}if(page==='module-settings'){navigate(moduleSettingsReturn);return true;}if(page==='todo-library'){navigate('todos');return true;}if(page!=='home'){navigate('home');return true;}return false;};
+  window.hubBack=goBack;
   // Small explicit interface for browser QA, never exposes native credentials.
   window.shiji={get state(){return state;}, setState:s=>{state=C.migrate(s);render();},render,navigate,openGoal:goalForm};
   call('load').then(result=>{if(result.ok){state=C.migrate(result.state);connected=!!result.connected;}else toast(result.error);render();if(connected&&(!state.lastSync||Date.now()-new Date(state.lastSync).getTime()>900000))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});

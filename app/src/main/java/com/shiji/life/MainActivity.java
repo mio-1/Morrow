@@ -3,6 +3,7 @@ package com.shiji.life;
 import android.app.Activity;
 import android.content.Intent;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.graphics.Color;
 import android.view.View;
 import android.view.WindowInsets;
@@ -18,6 +19,7 @@ import java.io.*;
 import java.net.*;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.security.MessageDigest;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.crypto.*;
@@ -28,6 +30,7 @@ public class MainActivity extends Activity {
     private static final String API = "https://c-api.bill.youqian.pro";
     private static final String RELEASE_API = "https://api.github.com/repos/mio-1/Morrow/releases/latest";
     private static final String RELEASE_PAGE = "https://github.com/mio-1/Morrow/releases/";
+    private static final String RELEASE_DOWNLOAD = RELEASE_PAGE + "download/";
     private static final String KEY_ALIAS = "shiji.session.v1";
     private WebView web;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -123,11 +126,7 @@ public class MainActivity extends Activity {
                             break;
                         case "sync": result = sync(); break;
                         case "checkUpdate": result = checkUpdate(); break;
-                        case "openUpdate":
-                            String releaseUrl = args.optString("url");
-                            if (!releaseUrl.startsWith(RELEASE_PAGE)) throw new UserError("更新地址无效");
-                            runOnUiThread(() -> startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))));
-                            result = ok(); break;
+                        case "downloadUpdate": result = downloadUpdate(); break;
                         case "logout":
                             getSharedPreferences("vault", MODE_PRIVATE).edit().clear().commit();
                             result = ok(); break;
@@ -188,16 +187,96 @@ public class MainActivity extends Activity {
             String url = release.optString("html_url"), tag = release.optString("tag_name");
             if (!url.startsWith(RELEASE_PAGE) || tag.isEmpty()) throw new UserError("更新信息格式无效");
             int latestCode = -1;
+            String apkUrl = "", apkName = "", digest = "", checksumUrl = "";
             JSONArray assets = release.optJSONArray("assets");
             if (assets != null) for (int i = 0; i < assets.length(); i++) {
-                String name = assets.getJSONObject(i).optString("name");
+                JSONObject asset = assets.getJSONObject(i);
+                String name = asset.optString("name");
                 java.util.regex.Matcher match = java.util.regex.Pattern.compile("^Morrow-v[0-9]+\\.[0-9]+\\.[0-9]+-vc([0-9]+)\\.apk$").matcher(name);
-                if (match.matches()) { latestCode = Integer.parseInt(match.group(1)); break; }
+                if (match.matches()) {
+                    int code = Integer.parseInt(match.group(1));
+                    if (code > latestCode) { latestCode = code; apkName = name; apkUrl = asset.optString("browser_download_url"); digest = asset.optString("digest"); }
+                }
+                if ("SHA256.txt".equals(name)) checksumUrl = asset.optString("browser_download_url");
             }
             if (latestCode < 0) throw new UserError("最新版本尚未提供 Android 安装包");
-            return result.put("published", true).put("latestVersion", tag).put("latestCode", latestCode).put("url", url);
+            if (!apkUrl.startsWith(RELEASE_DOWNLOAD) || !apkUrl.endsWith("/" + apkName)) throw new UserError("安装包地址无效");
+            return result.put("published", true).put("latestVersion", tag).put("latestCode", latestCode)
+                .put("apkUrl", apkUrl).put("apkName", apkName).put("digest", digest).put("checksumUrl", checksumUrl);
         } catch (IOException e) { throw new UserError("暂时无法检查更新，请检查网络后重试"); }
         finally { con.disconnect(); }
+    }
+
+    private JSONObject downloadUpdate() throws Exception {
+        JSONObject release = checkUpdate();
+        if (!release.optBoolean("published") || release.getInt("latestCode") <= release.getInt("currentCode"))
+            throw new UserError("当前已是最新版本");
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                Uri.parse("package:" + getPackageName()))));
+            throw new UserError("请允许 Morrow 安装应用，返回后再次点击下载安装");
+        }
+        String name = release.getString("apkName"), expected = release.optString("digest");
+        if (expected.startsWith("sha256:")) expected = expected.substring(7);
+        if (!expected.matches("(?i)[0-9a-f]{64}")) {
+            String checksumUrl = release.optString("checksumUrl");
+            if (!checksumUrl.startsWith(RELEASE_DOWNLOAD) || !checksumUrl.endsWith("/SHA256.txt"))
+                throw new UserError("发布版本缺少校验文件，已停止下载");
+            String checksum = downloadText(checksumUrl, 2048);
+            java.util.regex.Matcher match = java.util.regex.Pattern.compile("(?im)^([0-9a-f]{64})\\s+\\*?" +
+                java.util.regex.Pattern.quote(name) + "\\s*$").matcher(checksum);
+            if (!match.find()) throw new UserError("安装包校验信息无效，已停止下载");
+            expected = match.group(1);
+        }
+        File apk = new File(getCacheDir(), "morrow-update.apk");
+        File part = new File(getCacheDir(), "morrow-update.apk.part");
+        if (part.exists()) part.delete();
+        try {
+            MessageDigest hash = MessageDigest.getInstance("SHA-256");
+            HttpURLConnection con = releaseConnection(release.getString("apkUrl"));
+            try {
+                if (con.getResponseCode() != 200) throw new UserError("安装包下载失败（" + con.getResponseCode() + "）");
+                if (!"https".equalsIgnoreCase(con.getURL().getProtocol())) throw new UserError("下载地址不安全");
+                long size = 0;
+                try (InputStream in = con.getInputStream(); OutputStream out = new FileOutputStream(part)) {
+                    byte[] bytes = new byte[32768]; int count;
+                    while ((count = in.read(bytes)) != -1) {
+                        size += count;
+                        if (size > 200L * 1024 * 1024) throw new UserError("安装包超过大小限制");
+                        hash.update(bytes, 0, count); out.write(bytes, 0, count);
+                    }
+                }
+                if (size == 0) throw new UserError("安装包为空");
+                StringBuilder actual = new StringBuilder();
+                for (byte b : hash.digest()) actual.append(String.format(java.util.Locale.ROOT, "%02x", b & 255));
+                if (!actual.toString().equalsIgnoreCase(expected)) throw new UserError("安装包校验失败，请重试");
+                if (apk.exists() && !apk.delete()) throw new IOException("Could not replace cached APK");
+                if (!part.renameTo(apk)) throw new IOException("Could not save downloaded APK");
+            } finally { con.disconnect(); }
+        } finally { if (part.exists()) part.delete(); }
+        Uri uri = Uri.parse("content://" + getPackageName() + ".updates/update.apk");
+        Intent install = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        runOnUiThread(() -> startActivity(install));
+        return ok().put("downloaded", true);
+    }
+
+    private String downloadText(String url, int max) throws Exception {
+        HttpURLConnection con = releaseConnection(url);
+        try {
+            if (con.getResponseCode() != 200) throw new UserError("无法读取安装包校验信息");
+            if (!"https".equalsIgnoreCase(con.getURL().getProtocol())) throw new UserError("校验地址不安全");
+            try (InputStream in = con.getInputStream()) { return read(in, max); }
+        } finally { con.disconnect(); }
+    }
+
+    private HttpURLConnection releaseConnection(String url) throws Exception {
+        if (!url.startsWith(RELEASE_DOWNLOAD)) throw new UserError("更新地址无效");
+        HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection(Proxy.NO_PROXY);
+        con.setInstanceFollowRedirects(true);
+        con.setConnectTimeout(15000); con.setReadTimeout(30000);
+        con.setRequestProperty("User-Agent", "Morrow-Android-Update");
+        return con;
     }
 
     private JSONObject http(String path, JSONObject payload, String token) throws Exception {
