@@ -202,9 +202,14 @@ public class MainActivity extends Activity {
         for (int i=0;i<raw.length();i++) {
             JSONObject a=raw.getJSONObject(i);
             if (a.getDouble("balance") == 0d) continue;
+            String sourceName = a.optString("name", "").trim();
+            if (sourceName.isEmpty()) sourceName = "未命名账户";
+            String remark = a.optString("remark", "").trim();
+            String bankName = a.optString("bankName",a.optString("bank",a.optString("institutionName",""))).trim();
             JSONObject entry = new JSONObject().put("code",a.getString("code"))
-                .put("name",a.optString("name","未命名账户")).put("balance",a.get("balance"))
-                .put("bankName",a.optString("bankName",a.optString("bank",a.optString("institutionName",""))))
+                .put("name",remark.isEmpty() ? sourceName : remark).put("balance",a.get("balance"))
+                .put("sourceName",sourceName)
+                .put("bankName",bankName)
                 .put("currency",a.optString("currency", ""))
                 .put("reckonIn",a.optBoolean("reckonIn",false))
                 .put("liabilities",a.optBoolean("liabilities",false))

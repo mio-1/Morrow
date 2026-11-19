@@ -32,10 +32,10 @@
     ['hxb','华夏银行',/华夏银行/i],['czb','浙商银行',/浙商银行/i],['jsb','江苏银行',/江苏银行|BANK OF JIANGSU|JSBC?/i],
     ['bob','北京银行',/北京银行/i],['bos','上海银行',/上海银行/i]
   ];
-  function bankFor(a) { const name=[a.bankName,a.name].filter(Boolean).join(' ');return BANKS.find(([, ,pattern])=>pattern.test(name)); }
+  function bankFor(a) { const name=[a.bankName,a.sourceName,a.name].filter(Boolean).join(' ');return BANKS.find(([, ,pattern])=>pattern.test(name)); }
   function accountBadge(a) { const bank=bankFor(a);return bank?`<img src="bank-logos/${bank[0]}.png" alt="" loading="lazy">`:icon('wallet'); }
   function bankCardType(a) {
-    const source=[a.type,a.name].filter(Boolean).join(' ');
+    const source=[a.type,a.sourceName,a.name].filter(Boolean).join(' ');
     if(/信用卡|贷记卡|credit[ _-]?card|\bcredit\b/i.test(source))return '信用卡';
     if(/借记卡|储蓄卡|debit[ _-]?card|\bdebit\b/i.test(source))return '借记卡';
     return '';
