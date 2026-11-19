@@ -11,6 +11,8 @@ test('asset and todo pages have independent visibility settings',async()=>{
   await new Promise(resolve=>setImmediate(resolve));
   const s=C.demo();
   window.shiji.setState(s);
+  assert.ok(app.innerHTML.includes('class="card overview-trend"'));
+  assert.ok(!app.innerHTML.includes('data-action="open-trend"'));
   window.shiji.navigate('settings');
   assert.ok(app.innerHTML.includes('data-action="page-settings" data-id="wealth"'));
   assert.ok(app.innerHTML.includes('data-action="page-settings" data-id="todos"'));
@@ -26,8 +28,8 @@ test('asset and todo pages have independent visibility settings',async()=>{
   window.shiji.navigate('module-settings');
   assert.ok(app.innerHTML.includes('data-module="wealth" data-option="goals"'));
   window.shiji.navigate('wealth');
-  assert.ok(app.innerHTML.includes('<h1>资产统计</h1>'));
-  assert.ok(app.innerHTML.includes('data-action="wealth-tab"'));
+  assert.ok(app.innerHTML.includes('<h1>账户列表</h1>'));
+  assert.ok(!app.innerHTML.includes('data-action="wealth-tab"'));
   assert.ok(!app.innerHTML.includes('<h1>资产配置</h1>'));
   window.shiji.navigate('allocation');
   assert.ok(app.innerHTML.includes('<h1>资产配置</h1>'));
@@ -47,12 +49,14 @@ test('asset and todo pages have independent visibility settings',async()=>{
   window.shiji.navigate('wealth');
   assert.ok(!app.innerHTML.includes('class="card wealth-summary"'));
   assert.ok(!app.innerHTML.includes('data-action="wealth-tab"'));
-  assert.ok(app.innerHTML.includes('计入资产的变化'));
+  assert.ok(!app.innerHTML.includes('计入资产的变化'));
   window.shiji.navigate('allocation');
   assert.ok(!app.innerHTML.includes('class="allocation-bottom"'));
   assert.ok(!app.innerHTML.includes('class="progress"'));
   window.shiji.navigate('goals');
-  assert.ok(!app.innerHTML.includes('data-id="g"'));
+  assert.ok(app.innerHTML.includes('data-sort-id="g"'));
+  assert.ok(app.innerHTML.includes('aria-checked="false" aria-label="在资产页显示已达成"'));
+  assert.ok(!app.innerHTML.includes('data-action="move-item"'));
   window.shiji.navigate('todos');
   assert.ok(app.innerHTML.includes('未完成'));
   assert.ok(!app.innerHTML.includes('已完成'));

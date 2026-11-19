@@ -22,6 +22,18 @@ test('assets: exclude only the user-confirmed marker; hidden status is independe
     {code:'foreign',balance:999,currency:'USD',reckonIn:false}];
   assert.equal(C.totals(s).total,90.05);assert.equal(C.totals(s).included,2);
   assert.equal(C.totals(s).excluded,1);assert.equal(C.totals(s).foreign,1);
+  assert.equal(C.totals(s).grossAssets,100.10);
+  assert.equal(C.totals(s).liabilities,10.05);
+  assert.equal(C.totals(s).excludedTotal,-300);
+});
+test('migration removes previously synced zero balances but preserves manual zero accounts',()=>{
+  const s=C.migrate({assets:[
+    {code:'synced-zero',source:'xiaoqing',balance:0},
+    {code:'synced-string-zero',source:'xiaoqing',balance:'0.00'},
+    {code:'manual-zero',source:'manual',balance:0},
+    {code:'synced-nonzero',source:'xiaoqing',balance:1}
+  ]});
+  assert.deepEqual(s.assets.map(a=>a.code),['manual-zero','synced-nonzero']);
 });
 test('goals: per-category scope, deadline, completion, overdue, no fabricated prediction',()=>{
   const s=C.demo();s.goals=[];s.history=[];
@@ -95,4 +107,11 @@ test('asset blocks retain a unique order and goals retain individual visibility'
   assert.deepEqual(s.wealthOrder,['allocation','goals','summary']);
   assert.equal(s.goals[0].visible,false);
   assert.equal(s.goals[1].visible,true);
+});
+
+test('asset categories retain individual home visibility across migration',()=>{
+  const s=C.migrate({categories:[{id:'stock',name:'股票',color:'#356bee',visible:false},{id:'other',name:'其他',color:'#8796ae'}]});
+  assert.equal(s.categories[0].visible,false);
+  assert.equal(s.categories[1].visible,true);
+  assert.equal(C.totals(s).total,0);
 });

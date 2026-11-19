@@ -4,7 +4,7 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 8;
+  const SCHEMA = 10;
   const WEALTH_BLOCKS = [
     {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}
   ];
@@ -43,21 +43,28 @@
     { id: 'other', name: '其他', color: '#8796ae' }
   ];
   function empty() {
-    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
-      allocationMode: 'amount', allocationTargets: { stock: 0, bond: 0, cash: 0, other: 0 },
+    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,visible:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
+      allocationMode: 'amount', allocationTargets: { stock: 0, bond: 0, cash: 0, other: 0 }, allocationGoals: {},
       modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), lastSync: null, demo: false };
   }
   function migrate(value) {
     const s = Object.assign(empty(), value || {});
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
+    s.assets=s.assets.filter(a=>a&&typeof a==='object'&&!(a.source==='xiaoqing'&&Number(a.balance)===0));
     s.goals=s.goals.filter(g=>g&&typeof g==='object').map(g=>({...g,visible:g.visible!==false}));
     s.tasks = s.tasks.filter(t=>t&&typeof t==='object').map(t=>({...t,priority:['low','medium','high'].includes(t.priority)?t.priority:'medium'}));
     s.categoryMap = s.categoryMap && typeof s.categoryMap === 'object' ? s.categoryMap : {};
-    s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)) : CATEGORIES.map(c => ({...c}));
-    if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other')});
+    s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)).map(c=>({...c,visible:c.visible!==false})) : CATEGORIES.map(c => ({...c,visible:true}));
+    if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other'),visible:true});
     const order=Array.isArray(s.wealthOrder)?s.wealthOrder:[];
     s.wealthOrder=[...new Set(order.filter(id=>WEALTH_BLOCKS.some(b=>b.id===id)))].concat(WEALTH_BLOCKS.map(b=>b.id).filter(id=>!order.includes(id)));
     s.allocationTargets = Object.assign(empty().allocationTargets, s.allocationTargets || {});
+    const savedGoals=s.allocationGoals&&typeof s.allocationGoals==='object'?s.allocationGoals:{};
+    s.allocationGoals=Object.fromEntries(s.categories.filter(c=>savedGoals[c.id]||Number(s.allocationTargets[c.id])>0).map(c=>{
+      const goal=savedGoals[c.id]||{mode:s.allocationMode,target:s.allocationTargets[c.id]};
+      const mode=goal.mode==='percent'?'percent':'amount',target=Number(goal.target);
+      return [c.id,{mode,target:Number.isFinite(target)&&target>=0?target:0}];
+    }));
     const existing = Array.isArray(s.modules) ? s.modules.filter(m => MODULES.some(d => d.id === m.id)) : [];
     s.modules = existing.map(m => ({ id:m.id, enabled:!!m.enabled, visible:m.visible !== false }))
       .concat(MODULES.filter(m => !existing.some(e => e.id === m.id)).map(m => ({ id: m.id, enabled: m.enabled, visible:true })));
@@ -75,16 +82,17 @@
   function category(s, a) { return categories(s).some(c => c.id === s.categoryMap[a.code]) ? s.categoryMap[a.code] : 'other'; }
   function totals(s) {
     const values = Object.fromEntries(categories(s).map(c=>[c.id,0]));
-    let total = 0, count = 0, excluded = 0, foreign = 0;
+    let total = 0, grossAssets = 0, liabilities = 0, excludedTotal = 0, count = 0, excluded = 0, foreign = 0;
     for (const a of s.assets) {
-      if (a.reckonIn) { excluded++; continue; }
+      if (a.reckonIn) { excluded++;if(a.currency==='RMB')excludedTotal+=cents(a.balance);continue; }
       if (a.currency !== 'RMB') { foreign++; continue; }
       const amount = cents(a.balance), id = s.categoryMap?.[a.code];
       values[Object.hasOwn(values,id) ? id : 'other'] += amount;
       total += amount;
+      if(amount>=0)grossAssets+=amount;else liabilities-=amount;
       count++;
     }
-    return { total: total / 100, categories: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v / 100])), included:count, excluded, foreign };
+    return { total: total / 100, grossAssets:grossAssets/100, liabilities:liabilities/100, excludedTotal:excludedTotal/100, categories: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v / 100])), included:count, excluded, foreign };
   }
   function dateDay(date) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date || '');
@@ -129,12 +137,13 @@
       ahead: round(current - plan), estimate, dailyRate, overdue: !complete && days < 0 };
   }
   function allocation(s) {
-    const t = totals(s), percent = s.allocationMode === 'percent';
+    const t = totals(s);
     return categories(s).map(c => {
-      const current = t.categories[c.id], target = Number(s.allocationTargets[c.id] || 0);
+      const saved=s.allocationGoals?.[c.id], mode=saved?.mode||s.allocationMode||'amount', percent=mode==='percent';
+      const current = t.categories[c.id], target = Number(saved?.target ?? s.allocationTargets?.[c.id] ?? 0);
       const desired = percent ? Math.max(0, t.total) * target / 100 : target;
       const share = t.total > 0 ? current / t.total * 100 : 0;
-      return Object.assign({}, c, { current, share, target, desired, gap: round(desired - current),
+      return Object.assign({}, c, { current, share, mode, target, desired, gap: round(desired - current),
         deviation: percent ? round(share - target) : null,
         progress: desired > 0 ? Math.max(0, Math.min(100, current / desired * 100)) : 0 });
     });

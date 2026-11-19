@@ -158,6 +158,7 @@ public class MainActivity extends Activity {
         JSONArray accounts = new JSONArray();
         for (int i=0;i<raw.length();i++) {
             JSONObject a=raw.getJSONObject(i);
+            if (a.getDouble("balance") == 0d) continue;
             JSONObject entry = new JSONObject().put("code",a.getString("code"))
                 .put("name",a.optString("name","未命名账户")).put("balance",a.get("balance"))
                 .put("currency",a.optString("currency", ""))
