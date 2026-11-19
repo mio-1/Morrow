@@ -1,6 +1,6 @@
 {
   "name": "morrow-app",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "description": "Morrow：可配置的个人生活工具箱 Android App",
   "scripts": {

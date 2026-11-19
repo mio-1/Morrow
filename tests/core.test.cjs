@@ -50,18 +50,23 @@ test('goals: per-category scope, deadline, completion, overdue, no fabricated pr
   const s=C.demo();s.goals=[];s.history=[];
   const g={amount:100000,deadline:'2027-01-31',createdDate:'2027-01-01',baseline:80000,scope:'all'};
   const m=C.goalMetrics(s,g,'2027-01-16');
-  assert.equal(m.current,81000);assert.equal(m.remaining,19000);assert.equal(m.days,15);assert.equal(m.percent,81);
-  assert.equal(m.ahead,-9000);assert.equal(m.estimate,null);assert.equal(m.monthly,38554.17);
+  assert.equal(m.current,86000);assert.equal(m.remaining,14000);assert.equal(m.days,15);assert.equal(m.percent,86);
+  assert.equal(m.ahead,-4000);assert.equal(m.estimate,null);assert.equal(m.monthly,28408.33);
   assert.equal(C.goalMetrics(s,g,'2027-02-01').overdue,true);
   assert.equal(C.goalMetrics(s,{...g,amount:1000},'2027-01-16').complete,true);
   assert.equal(C.goalMetrics(s,{...g,scope:'stock'},'2027-01-16').current,32000);
 });
-test('allocation: percent is based on current assets; amount is fixed; percent must total 100',()=>{
+test('allocation targets are fixed amounts; target shares use enabled target amounts',()=>{
   const s=C.demo();assert.equal(C.allocation(s)[0].desired,34400);
-  s.allocationMode='amount';s.allocationTargets.stock=40000;
+  assert.equal(C.allocation(s)[0].targetShare,40);
+  s.allocationGoals.stock={target:40000};
   assert.equal(C.allocation(s)[0].gap,8000);
-  assert.ok(C.validateAllocation('percent',{stock:40,bond:30,cash:20,other:0}));
-  assert.equal(C.validateAllocation('percent',{stock:40,bond:30,cash:30,other:0}),null);
+  assert.equal(C.allocation(s)[0].targetShare,40000/(40000+25800+25800)*100);
+  s.categories.find(c=>c.id==='bond').statsEnabled=false;
+  assert.equal(C.allocation(s).find(c=>c.id==='bond').targetShare,0);
+  assert.equal(C.allocation(s).find(c=>c.id==='stock').targetShare,40000/(40000+25800)*100);
+  assert.equal(C.allocation(s).find(c=>c.id==='bond').target,25800);
+  assert.equal(C.totals(s).grossAssets,86000);
 });
 test('daily snapshots replace same day, preserve previous days, and require month boundary for monthly metric',()=>{
   const s=C.demo();s.history=[];
@@ -84,10 +89,10 @@ test('calendar dates reject invalid dates; multiple goals stay independent and m
 });
 test('custom categories participate in totals and allocation targets',()=>{
   const s=C.empty();s.categories.push({id:'gold',name:'黄金',color:'#ba975c'});
-  s.assets=[{code:'gold1',balance:12000,currency:'RMB',reckonIn:false}];s.categoryMap.gold1='gold';s.allocationTargets={stock:40,bond:30,cash:10,other:0,gold:20};
+  s.assets=[{code:'gold1',balance:12000,currency:'RMB',reckonIn:false}];s.categoryMap.gold1='gold';s.allocationGoals={gold:{target:20000}};
   assert.equal(C.totals(s).categories.gold,12000);
   assert.equal(C.allocation(s).find(c=>c.id==='gold').share,100);
-  assert.equal(C.validateAllocation('percent',s.allocationTargets,s.categories),null);
+  assert.equal(C.allocation(s).find(c=>c.id==='gold').targetShare,100);
 });
 test('forecasts need recent positive growth; recategorized history cannot invent category growth',()=>{
   const s=C.demo();s.history=[];const g={amount:100000,deadline:'2027-12-31',createdDate:'2027-01-01',baseline:0,scope:'stock'};
@@ -100,9 +105,9 @@ test('forecasts need recent positive growth; recategorized history cannot invent
 });
 test('forecast chooses the oldest eligible snapshot even when history is unsorted',()=>{
   const s=C.demo();
-  s.history=[{date:'2027-01-11',total:80000},{date:'2027-01-01',total:70000}];
+  s.history=[{date:'2027-01-11',total:75000,grossAssets:80000},{date:'2027-01-01',total:65000,grossAssets:70000}];
   const g={amount:100000,deadline:'2027-12-31',createdDate:'2027-01-01',baseline:0,scope:'all'};
-  assert.equal(C.goalMetrics(s,g,'2027-01-21').dailyRate,550);
+  assert.equal(C.goalMetrics(s,g,'2027-01-21').dailyRate,800);
 });
 test('page content options migrate independently and preserve explicit off choices',()=>{
   const s=C.migrate({pageOptions:{wealth:{summary:false,unknown:false},todos:{completed:false,dates:false}}});
@@ -120,9 +125,28 @@ test('asset blocks retain a unique order and goals retain individual visibility'
   assert.equal(s.goals[1].visible,true);
 });
 
-test('asset categories retain individual home visibility across migration',()=>{
+test('asset categories migrate the old visibility switch to allocation statistics only',()=>{
   const s=C.migrate({categories:[{id:'stock',name:'股票',color:'#356bee',visible:false},{id:'other',name:'其他',color:'#8796ae'}]});
-  assert.equal(s.categories[0].visible,false);
-  assert.equal(s.categories[1].visible,true);
+  assert.equal(s.categories[0].statsEnabled,false);
+  assert.equal(s.categories[1].statsEnabled,true);
   assert.equal(C.totals(s).total,0);
+  s.assets=[{code:'stock',balance:100,currency:'RMB',reckonIn:false},{code:'other',balance:50,currency:'RMB',reckonIn:false}];
+  s.categoryMap={stock:'stock',other:'other'};
+  assert.equal(C.totals(s).grossAssets,150);
+  assert.equal(C.goalValue(s,{scope:'all'}),150);
+  assert.equal(C.allocation(s).find(c=>c.id==='stock').share,0);
+  assert.equal(C.allocation(s).find(c=>c.id==='other').share,100);
+  s.categories[0].statsEnabled=true;
+  assert.equal(C.migrate(s).categories[0].statsEnabled,true);
+});
+test('old percentage targets become fixed amounts using participating assets at upgrade',()=>{
+  const s=C.demo();s.version=11;
+  s.allocationGoals={stock:{mode:'percent',target:40},bond:{mode:'percent',target:30},cash:{mode:'percent',target:30}};
+  s.categories.find(c=>c.id==='bond').statsEnabled=false;
+  const upgraded=C.migrate(s);
+  assert.equal(upgraded.allocationGoals.stock.target,24800);
+  assert.equal(upgraded.allocationGoals.bond.target,18600);
+  assert.equal(C.allocation(upgraded).find(c=>c.id==='stock').targetShare,40/70*100);
+  assert.equal(upgraded.allocationMode,undefined);
+  assert.equal(upgraded.allocationTargets,undefined);
 });

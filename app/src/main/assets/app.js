@@ -2,8 +2,8 @@
   'use strict';
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
-  let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, dragState=null, swipeState=null, longPressState=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.6',latest:''}, downloadSession=null;
+  let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
+  let updateState={status:'idle',current:'0.1.7',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -28,11 +28,17 @@
     ['ceb','光大银行',/光大银行|CEB/i],['cmbc','民生银行',/民生银行|CMBC/i],
     ['cib','兴业银行',/兴业银行|CIB/i],['spdb','浦发银行',/浦发银行|上海浦东发展银行|SPDB/i],
     ['pab','平安银行',/平安银行/i],['cgb','广发银行',/广发银行|广发|CGB/i],
-    ['hxb','华夏银行',/华夏银行/i],['czb','浙商银行',/浙商银行/i],
+    ['hxb','华夏银行',/华夏银行/i],['czb','浙商银行',/浙商银行/i],['jsb','江苏银行',/江苏银行|BANK OF JIANGSU|JSBC?/i],
     ['bob','北京银行',/北京银行/i],['bos','上海银行',/上海银行/i]
   ];
   function bankFor(a) { const name=[a.bankName,a.name].filter(Boolean).join(' ');return BANKS.find(([, ,pattern])=>pattern.test(name)); }
   function accountBadge(a) { const bank=bankFor(a);return bank?`<img src="bank-logos/${bank[0]}.png" alt="" loading="lazy">`:icon('wallet'); }
+  function bankCardType(a) {
+    const source=[a.type,a.name].filter(Boolean).join(' ');
+    if(/信用卡|贷记卡|credit[ _-]?card|\bcredit\b/i.test(source))return '信用卡';
+    if(/借记卡|储蓄卡|debit[ _-]?card|\bdebit\b/i.test(source))return '借记卡';
+    return '';
+  }
   function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function money(n, decimals = 0) { return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
   function yuan(n) { return '¥' + money(n); }
@@ -108,7 +114,7 @@
   }
   function wealthWidget() {
     const t=C.totals(state), assets=hasAssets();
-    return `<section><div class="hero"><div class="overview-hero-top"><div class="hero-label">净资产</div><div class="overview-sync"><button class="sync ${busy?'busy':''}" data-action="${connected?'sync':'connect'}" ${busy?'disabled':''}>${icon('sync')}${busy?'同步中':connected?'同步资产':'连接账户'}</button><small>${assets?syncLabel():'尚未同步'}</small></div></div><div class="asset-value">${assets?`<span class="currency-symbol">¥</span>${money(t.total,2)}`:'等待第一笔同步'}</div><div class="overview-metrics"><div><span>总资产</span><strong>${assets?yuan(t.grossAssets):'—'}</strong></div><div><span>总负债</span><strong>${assets?yuan(t.liabilities):'—'}</strong></div><div><span>未计入资产</span><strong>${assets?yuan(t.excludedTotal):'—'}</strong></div></div></div>${t.foreign?`<div class="warning-note">${t.foreign} 个外币账户暂未折算，未计入人民币目标，请在小青账核对。</div>`:''}</section>`;
+    return `<section><div class="hero"><div class="overview-hero-top"><div class="hero-label">总资产</div><div class="overview-sync"><button class="sync ${busy?'busy':''}" data-action="${connected?'sync':'connect'}" ${busy?'disabled':''}>${icon('sync')}${busy?'同步中':connected?'同步资产':'连接账户'}</button><small>${assets?syncLabel():'尚未同步'}</small></div></div><div class="asset-value">${assets?`<span class="currency-symbol">¥</span>${money(t.grossAssets,2)}`:'等待第一笔同步'}</div><div class="overview-metrics"><div><span>净资产</span><strong>${assets?yuan(t.total):'—'}</strong></div><div><span>总负债</span><strong>${assets?yuan(t.liabilities):'—'}</strong></div><div><span>未计入资产</span><strong>${assets?yuan(t.excludedTotal):'—'}</strong></div></div></div>${t.foreign?`<div class="warning-note">${t.foreign} 个外币账户暂未折算，未计入人民币目标，请在小青账核对。</div>`:''}</section>`;
   }
   function goalsWidget() {
     const goals=state.goals.filter(g=>g.visible!==false);
@@ -121,13 +127,12 @@
       <div class="goal-numbers"><strong>${hasAssets() ? yuan(m.current) : '—'}</strong><span>/ ${yuan(g.amount)}</span></div><div class="progress"><i style="width:${hasAssets() ? m.bar : 0}%"></i></div><div class="goal-foot"><b>${hasAssets() ? `${money(m.percent,1)}% 已完成` : '同步资产后计算进度'}</b>${!tailored||pageOption('goals','monthly') ? `<span>${!hasAssets()?'等待资产数据':m.complete ? '这一程，已经抵达' : m.monthly == null ? '需调整截止日期' : `每月还需 ${yuan(m.monthly)}`}</span>` : ''}</div></button>`;
   }
   function allocationWidget() {
-    const rows = C.allocation(state), shown=rows.filter(r=>state.categories.find(c=>c.id===r.id)?.visible!==false), t = C.totals(state); let acc = 0;
-    const hiddenTotal=rows.filter(r=>state.categories.find(c=>c.id===r.id)?.visible===false).reduce((n,r)=>n+Math.max(0,r.current),0);
-    const segments = shown.filter(r => r.current > 0).concat(hiddenTotal?[{current:hiddenTotal,color:'#dce3ee'}]:[]).map(r => { const from=acc; acc += r.current; return {r,from}; });
+    const rows = C.allocation(state), shown=rows.filter(r=>r.statsEnabled!==false), t = C.totals(state); let acc = 0;
+    const segments = shown.filter(r => r.current > 0).map(r => { const from=acc; acc += r.current; return {r,from}; });
     const positiveTotal = segments.reduce((n,s) => n+s.r.current,0);
     const gradient = positiveTotal ? segments.map(({r,from}) => `${r.color} ${from/positiveTotal*360}deg ${(from+r.current)/positiveTotal*360}deg`).join(',') : '#e8ede5 0deg 360deg';
     const unclassified = state.assets.filter(a => C.included(a) && !state.categoryMap[a.code]).length;
-    return `<section class="section"><div class="section-head"><h2>资产配置</h2><button class="subtle" data-action="assets-allocation">查看详情${icon('arrow')}</button></div><div class="card"><div class="allocation-top"><div class="donut" style="--segments:${gradient}"><div class="donut-hole"><strong>${t.grossAssets > 0 ? '100%' : '—'}</strong><span>资产配置</span></div></div><div class="allocation-legend">${shown.map(r => `<div class="legend-row"><span class="legend-name"><i class="dot" style="background:${r.color}"></i>${esc(r.name)}</span><b>${money(r.share,1)}%</b></div>`).join('')}${hiddenTotal?`<div class="legend-row muted"><span class="legend-name"><i class="dot" style="background:#dce3ee"></i>未展示</span><b>${money(hiddenTotal/Math.max(1,t.grossAssets)*100,1)}%</b></div>`:''}</div></div><p class="allocation-note">${unclassified ? `${unclassified} 个计入账户尚在“其他”类别，可在账户页归类。` : hasAssets() ? '为股票、债券、现金设置自己的配置目标。' : '连接资产后查看各类别占比。'}${t.grossAssets <= 0 ? '' : ' 圆环展示正余额构成。'}</p></div></section>`;
+    return `<section class="section"><div class="section-head"><h2>资产配置</h2><button class="subtle" data-action="assets-allocation">查看详情${icon('arrow')}</button></div><div class="card"><div class="allocation-top"><div class="donut" style="--segments:${gradient}"><div class="donut-hole"><strong>${positiveTotal > 0 ? '100%' : '—'}</strong><span>资产配置</span></div></div><div class="allocation-legend">${shown.map(r => `<div class="legend-row"><span class="legend-name"><i class="dot" style="background:${r.color}"></i>${esc(r.name)}</span><b>${money(r.share,1)}%</b></div>`).join('')}</div></div><p class="allocation-note">${unclassified ? `${unclassified} 个计入账户尚在“其他”类别，可在账户页归类。` : hasAssets() ? '为股票、债券、现金设置自己的配置目标。' : '连接资产后查看各类别占比。'}${t.grossAssets <= 0 ? '' : ' 圆环展示参与统计类别的正余额构成。'}</p></div></section>`;
   }
   function goalsView() {
     const filtered=goalFilter==='all'?state.goals:state.goals.filter(g=>goalStatus(g)===goalFilter);
@@ -147,18 +152,19 @@
   function allocationView() {
     const rows = C.allocation(state);
     return rows.map(r => {
-        const targetLabel=r.target<=0?'目标金额':r.mode==='percent'?`目标金额 · ${money(r.target,1)}%`:'目标金额';
+        const targetLabel=r.target<=0||r.statsEnabled===false?'目标金额':`目标金额 · ${money(r.targetShare,1)}%`;
         const gapText=!hasAssets()||r.target<=0?'':r.gap>=0?`还差 ${yuan(r.gap)}`:`高于目标 ${yuan(-r.gap)}`;
-        const progressText=r.target<=0?'':r.mode==='percent'?`${r.deviation>0?'+':''}${money(r.deviation,1)} 个百分点`:`${money(r.current/r.target*100,1)}%`;
+        const progressText=r.target<=0?'':`${money(r.current/r.target*100,1)}%`;
         const accounts=state.assets.filter(a=>C.category(state,a)===r.id);
-        const accountMarkup=accounts.slice(0,2).map(a=>`<span class="allocation-account-chip" title="${esc(a.name)}"><span class="allocation-account-logo">${accountBadge(a)}</span><span class="allocation-account-name">${esc(a.name)}</span></span>`).join('')+(accounts.length>2?`<span class="allocation-account-more" aria-label="另有${accounts.length-2}个账户">…</span>`:'');
-        return `<article class="allocation-item" data-sort-type="category" data-sort-id="${esc(r.id)}">${r.id==='other'?'':`<button class="allocation-swipe-delete" aria-label="删除${esc(r.name)}" data-action="category-delete-confirm" data-id="${esc(r.id)}">${icon('trash')}<span>删除</span></button>`}<div class="card allocation-row"><div class="allocation-row-top"><button class="allocation-row-title" data-action="category-edit" data-id="${esc(r.id)}" aria-label="编辑${esc(r.name)}"><i class="dot" style="background:${r.color}"></i><h3>${esc(r.name)}</h3>${icon('edit')}</button><button class="switch ${r.visible!==false?'on':''}" role="switch" aria-checked="${r.visible!==false}" aria-label="在资产页显示${esc(r.name)}" data-action="toggle-category-visible" data-id="${esc(r.id)}"><i></i></button></div><div class="allocation-value-row"><div class="allocation-amount"><small>当前金额${pageOption('allocation','share')?` · ${money(r.share,1)}%`:''}</small><strong>${yuan(r.current)}</strong></div><button class="allocation-amount allocation-target-edit" data-action="allocation-edit" data-id="${esc(r.id)}"><small>${targetLabel}${icon('arrow')}</small><strong>${r.target>0?yuan(r.desired):'设置目标'}</strong></button></div>${pageOption('allocation','progress')&&r.target>0?`<div class="progress"><i style="background:${r.color};width:${r.progress}%"></i></div>`:''}${pageOption('allocation','gap')&&r.target>0?`<div class="allocation-bottom"><span>${gapText}</span><b>${progressText}</b></div>`:''}<div class="allocation-accounts">${accountMarkup}<button class="allocation-account-add" data-action="category-accounts" data-id="${esc(r.id)}" aria-label="关联${esc(r.name)}账户">＋</button></div></div></article>`;
+        const accountMarkup=accounts.map(a=>`<span class="allocation-account-chip" title="${esc(a.name)}"><span class="allocation-account-logo">${accountBadge(a)}</span><span class="allocation-account-name">${esc(a.name)}</span></span>`).join('');
+        return `<article class="allocation-item" data-sort-type="category" data-sort-id="${esc(r.id)}">${r.id==='other'?'':`<button class="allocation-swipe-delete" aria-label="删除${esc(r.name)}" data-action="category-delete-confirm" data-id="${esc(r.id)}">${icon('trash')}<span>删除</span></button>`}<div class="card allocation-row"><div class="allocation-row-top"><button class="allocation-row-title" data-action="category-edit" data-id="${esc(r.id)}" aria-label="编辑${esc(r.name)}"><i class="dot" style="background:${r.color}"></i><h3>${esc(r.name)}</h3>${icon('edit')}</button><div class="category-stats-control"><span class="${r.statsEnabled!==false?'active':''}">${r.statsEnabled!==false?'参与统计':'已暂停'}</span><button class="switch ${r.statsEnabled!==false?'on':''}" role="switch" aria-checked="${r.statsEnabled!==false}" aria-label="${r.name}参与资产配置统计" data-action="toggle-category-stats" data-id="${esc(r.id)}"><i></i></button></div></div><div class="allocation-value-row"><div class="allocation-amount"><small>当前金额${r.statsEnabled===false?' · 未统计':pageOption('allocation','share')?` · ${money(r.share,1)}%`:''}</small><strong>${yuan(r.current)}</strong></div><button class="allocation-amount allocation-target-edit" data-action="allocation-edit" data-id="${esc(r.id)}"><small>${targetLabel}${icon('arrow')}</small><strong>${r.target>0?yuan(r.desired):'设置目标'}</strong></button></div>${pageOption('allocation','progress')&&r.target>0?`<div class="progress"><i style="background:${r.color};width:${r.progress}%"></i></div>`:''}${pageOption('allocation','gap')&&r.target>0?`<div class="allocation-bottom"><span>${gapText}</span><b>${progressText}</b></div>`:''}<div class="allocation-accounts">${accountMarkup}<button class="allocation-account-add" data-action="category-accounts" data-id="${esc(r.id)}" aria-label="关联${esc(r.name)}账户">＋</button></div></div></article>`;
       }).join('');
   }
   function accountsView() {
-    const t = C.totals(state);
-    return `<div class="section-head"><h2>${state.assets.length} 个账户</h2><div class="section-actions"><button class="mini-button ${busy ? 'busy' : ''}" data-action="sync" ${busy?'disabled':''}>${busy?'同步中':'同步'}</button></div></div>` +
-      (hasAssets() ? `<div class="card">${state.assets.map(a => { const bank=bankFor(a), amount=C.cents(a.balance);return `<div class="account ${a.reckonIn&&amount>0 ? 'excluded' : ''}"><div class="account-badge">${accountBadge(a)}</div><div class="account-main"><h3>${esc(a.name)}</h3><small>${bank?`${esc(bank[1])} · `:''}${a.currency !== 'RMB' ? '外币暂未折算' : amount<0?'负债':a.reckonIn?'未计入资产':'计入资产'}</small></div><div class="account-value"><strong>${esc(a.currency === 'RMB' ? '¥' : a.currency+' ')}${money(a.balance,2)}</strong><select aria-label="${esc(a.name)}的资产类别" data-category-code="${esc(a.code)}">${C.categories(state).map(c => `<option value="${c.id}" ${C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div></div>`;}).join('')}</div>` : emptyCard('先把资产连接进来','登录小青账后读取资产。','connect','连接小青账','wallet'));
+    const sorted=state.assets.slice();
+    if(state.accountSort!=='original')sorted.sort((a,b)=>(Number(b.balance)-Number(a.balance))*(state.accountSort==='amount-asc'?-1:1));
+    return `<div class="section-head accounts-head"><h2>${state.assets.length} 个账户</h2><div class="section-actions"><select class="account-sort" data-account-sort aria-label="账户排序"><option value="amount-desc" ${state.accountSort==='amount-desc'?'selected':''}>金额从高到低</option><option value="amount-asc" ${state.accountSort==='amount-asc'?'selected':''}>金额从低到高</option><option value="original" ${state.accountSort==='original'?'selected':''}>原始顺序</option></select><button class="mini-button ${busy ? 'busy' : ''}" data-action="sync" ${busy?'disabled':''}>${busy?'同步中':'同步'}</button></div></div>` +
+      (hasAssets() ? `<div class="card">${sorted.map(a => { const bank=bankFor(a), amount=C.cents(a.balance), kind=bankCardType(a), bankName=bank?.[1]||String(a.bankName||'').trim(), labels=[bankName,kind,a.currency!=='RMB'?'外币暂未折算':amount<0?'负债':a.reckonIn?'不计入':''].filter(Boolean);return `<div class="account ${a.reckonIn&&amount>0 ? 'excluded' : ''}"><div class="account-badge">${accountBadge(a)}</div><div class="account-main"><h3>${esc(a.name)}</h3>${labels.length?`<small>${labels.map(esc).join(' · ')}</small>`:''}</div><div class="account-value"><strong>${esc(a.currency === 'RMB' ? '¥' : a.currency+' ')}${money(a.balance,2)}</strong><span class="category-select-wrap"><select aria-label="${esc(a.name)}的资产类别" data-category-code="${esc(a.code)}">${C.categories(state).map(c => `<option value="${c.id}" ${C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>${icon('arrow')}</span></div></div>`;}).join('')}</div>` : emptyCard('先把资产连接进来','登录小青账后读取资产。','connect','连接小青账','wallet'));
   }
   function taskRow(t, inLibrary=false) {
     const urgency=!t.done?C.taskUrgency(t):null, priority={low:'低',medium:'中',high:'高'}[t.priority]||'中';
@@ -307,7 +313,7 @@
   }
   function allocationForm(id) {
     const row=C.allocation(state).find(r=>r.id===id);if(!row)return;
-    openSheet(`${row.name}目标`,`<form data-form="allocation" data-id="${esc(id)}"><label class="form-field"><span>目标方式</span><select name="mode" id="allocation-mode"><option value="amount" ${row.mode==='amount'?'selected':''}>金额目标</option><option value="percent" ${row.mode==='percent'?'selected':''}>比例目标</option></select></label><label class="form-field"><span>目标值 <span class="unit">${row.mode==='percent'?'%':'元'}</span></span><input name="target" type="number" inputmode="decimal" min="0" ${row.mode==='percent'?'max="100"':''} step="0.01" value="${row.target||''}" required></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存目标</button>${row.target>0?`<button type="button" class="text-btn danger full" data-action="allocation-delete-confirm" data-id="${esc(id)}">删除目标</button>`:''}</form>`);
+    openSheet(`${row.name}目标`,`<form data-form="allocation" data-id="${esc(id)}"><label class="form-field"><span>目标金额 · 元</span><input name="target" type="number" inputmode="decimal" min="0" max="1000000000000" step="0.01" value="${row.target||''}" required></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存目标</button>${row.target>0?`<button type="button" class="text-btn danger full" data-action="allocation-delete-confirm" data-id="${esc(id)}">删除目标</button>`:''}</form>`);
   }
   function loginSheet() {
     openSheet(connected?'小青账账户':'连接小青账',`${hint('手机号 + 密码登录。密码只用于本次登录，不会保存。会话令牌由系统密钥库加密，资产只读同步。')}${!native?'<div class="warning-note">当前为浏览器预览，不能登录真实账户。请在安装好的安卓 App 中使用。</div>':''}<form data-form="login"><label class="form-field"><span>手机号</span><input name="phone" type="tel" inputmode="tel" autocomplete="username" maxlength="20" placeholder="小青账登录手机号" required></label><label class="form-field"><span>密码</span><input name="password" type="password" autocomplete="current-password" placeholder="输入小青账密码" required></label><div class="form-error" role="alert"></div><button class="primary full" type="submit" ${busy?'disabled':''}>${busy?'正在连接…':'登录并同步资产'}</button></form>`);
@@ -331,7 +337,33 @@
   function categoryForm(id) {
     const c=C.categories(state).find(c=>c.id===id);
     const accounts=categoryAccountFields(c);
-    openSheet(c?'编辑资产类别':'新的资产类别',`<form data-form="category" data-id="${esc(c?.id||'')}"><label class="form-field"><span>类别名称</span><input name="name" maxlength="12" value="${esc(c?.name||'')}" placeholder="例如：黄金" required></label><label class="form-field"><span>标记颜色</span><input name="color" type="color" value="${c?.color||'#b89356'}"></label><div class="category-account-section"><h3>包含账户</h3>${accounts||'<p class="category-no-accounts">暂无账户</p>'}</div><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存类别</button>${c&&c.id!=='other'?'<button class="text-btn danger full" type="button" data-action="category-delete-confirm" data-id="'+esc(c.id)+'">删除类别</button>':''}</form>`,'category-dialog');
+    openSheet(c?'编辑资产类别':'新的资产类别',`<form data-form="category" data-id="${esc(c?.id||'')}"><label class="form-field"><span>类别名称</span><input name="name" maxlength="12" value="${esc(c?.name||'')}" placeholder="例如：黄金" required></label>${colorPicker(c?.color||'#b89356')}<div class="category-account-section"><h3>包含账户</h3>${accounts||'<p class="category-no-accounts">暂无账户</p>'}</div><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存类别</button>${c&&c.id!=='other'?'<button class="text-btn danger full" type="button" data-action="category-delete-confirm" data-id="'+esc(c.id)+'">删除类别</button>':''}</form>`,'category-dialog');
+  }
+  function hexToHsv(hex) {
+    const rgb=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255),max=Math.max(...rgb),min=Math.min(...rgb),d=max-min;
+    let hue=0;if(d){if(max===rgb[0])hue=((rgb[1]-rgb[2])/d)%6;else if(max===rgb[1])hue=(rgb[2]-rgb[0])/d+2;else hue=(rgb[0]-rgb[1])/d+4;hue=(hue*60+360)%360;}
+    return {h:Math.round(hue),s:max?Math.round(d/max*100):0,v:Math.round(max*100)};
+  }
+  function hsvToHex(h,s,v) {
+    s/=100;v/=100;const c=v*s,x=c*(1-Math.abs((h/60)%2-1)),m=v-c;
+    const rgb=h<60?[c,x,0]:h<120?[x,c,0]:h<180?[0,c,x]:h<240?[0,x,c]:h<300?[x,0,c]:[c,0,x];
+    return '#'+rgb.map(n=>Math.round((n+m)*255).toString(16).padStart(2,'0')).join('');
+  }
+  function colorPicker(color) {
+    const palette=['#356bee','#3192c7','#28a789','#70a66b','#a89b45','#d89b54','#d97768','#c46c9a','#9369bd','#5b79a8','#697b91','#b89356'], hsv=hexToHsv(color);
+    return `<div class="color-picker"><div class="color-picker-heading"><span>类别颜色</span><button class="color-custom-toggle" type="button" data-action="toggle-color-custom">自定义</button></div><input type="hidden" name="color" value="${color}"><div class="color-swatches">${palette.map(value=>`<button type="button" class="color-swatch ${value===color?'selected':''}" style="--swatch:${value}" data-action="color-preset" data-color="${value}" aria-label="选择颜色 ${value}"></button>`).join('')}</div><div class="color-custom" hidden><div class="color-sv" data-color-sv data-s="${hsv.s}" data-v="${hsv.v}" style="--hue:${hsv.h}"><i style="left:${hsv.s}%;top:${100-hsv.v}%"></i></div><input class="color-hue" data-color-hue type="range" min="0" max="359" value="${hsv.h}" aria-label="色相"><div class="color-current"><i style="background:${color}"></i><span>${color.toUpperCase()}</span></div></div></div>`;
+  }
+  function setCategoryColor(form,color) {
+    const picker=form.querySelector('.color-picker'),hsv=hexToHsv(color);
+    form.elements.color.value=color;picker.querySelectorAll('.color-swatch').forEach(el=>el.classList.toggle('selected',el.dataset.color===color));
+    const sv=picker.querySelector('.color-sv');sv.style.setProperty('--hue',hsv.h);sv.dataset.s=hsv.s;sv.dataset.v=hsv.v;
+    sv.querySelector('i').style.left=hsv.s+'%';sv.querySelector('i').style.top=(100-hsv.v)+'%';
+    picker.querySelector('.color-hue').value=hsv.h;picker.querySelector('.color-current i').style.background=color;picker.querySelector('.color-current span').textContent=color.toUpperCase();
+  }
+  function moveCategoryColor(e) {
+    const drag=colorDrag;if(!drag||drag.pointerId!==e.pointerId)return;
+    const rect=drag.sv.getBoundingClientRect(),s=Math.max(0,Math.min(100,(e.clientX-rect.left)/rect.width*100)),v=100-Math.max(0,Math.min(100,(e.clientY-rect.top)/rect.height*100));
+    setCategoryColor(drag.form,hsvToHex(Number(drag.form.querySelector('.color-hue').value),s,v));e.preventDefault();
   }
   function categoryAccountFields(c) {
     return state.assets.map(a=>{const current=C.category(state,a),assigned=c&&current===c.id,locked=c?.id==='other'&&assigned;return `<label class="category-account"><input type="checkbox" name="account" value="${esc(a.code)}" ${assigned?'checked':''} ${locked?'disabled':''}><span><strong>${esc(a.name)}</strong><small>${a.reckonIn?'不计入 · ':''}${esc(C.categories(state).find(x=>x.id===current)?.name||'其他')}</small></span></label>`;}).join('');
@@ -354,19 +386,49 @@
     if(root){navRoot=next;navHistory=[];}else navHistory.push(page);
     page=next;render();window.scrollTo(0,0);
   }
-  function reorderItem(type,id,target) {
+  function commitSort(type,ids) {
     const list=type==='wealth'?state.wealthOrder:type==='category'?state.categories:type==='goal'?state.goals:null;
     if(!list)return;
-    const key=x=>typeof x==='string'?x:x.id, from=list.findIndex(x=>key(x)===id), to=list.findIndex(x=>key(x)===target);
-    if(from<0||to<0||from===to)return;
-    list.splice(to,0,list.splice(from,1)[0]);save();render();
+    const key=x=>typeof x==='string'?x:x.id, byId=new Map(list.map(x=>[key(x),x])), visible=new Set(ids);
+    if(ids.some(id=>!byId.has(id)))return;
+    const slots=list.map((x,i)=>visible.has(key(x))?i:-1).filter(i=>i>=0);
+    if(slots.length!==ids.length)return;
+    let changed=false;slots.forEach((slot,i)=>{if(key(list[slot])!==ids[i])changed=true;list[slot]=byId.get(ids[i]);});
+    if(changed)save();render();
+  }
+  function beginSort(item,e) {
+    const type=item.dataset.sortType, selector=type==='wealth'?'.sortable-section':type==='goal'?'.goal-list-item':'.allocation-item';
+    const rect=item.getBoundingClientRect(), ghost=item.cloneNode(true);
+    ghost.classList.add('sort-ghost');ghost.classList.remove('is-open','is-swiping');
+    Object.assign(ghost.style,{left:`${rect.left}px`,top:`${rect.top}px`,width:`${rect.width}px`,height:`${rect.height}px`});
+    document.body.appendChild(ghost);item.classList.add('sort-placeholder');
+    sortState={item,ghost,type,selector,pointerId:e.pointerId,startY:e.clientY,offsetX:e.clientX-rect.left,offsetY:e.clientY-rect.top,parent:item.parentElement};
+    suppressSwipeClick=true;
+  }
+  function moveSort(e) {
+    const s=sortState;if(!s||e.pointerId!==s.pointerId)return;
+    s.ghost.style.left=`${e.clientX-s.offsetX}px`;s.ghost.style.top=`${e.clientY-s.offsetY}px`;
+    const siblings=[...s.parent.querySelectorAll(`:scope > ${s.selector}`)].filter(el=>el!==s.item);
+    if(!siblings.length)return;
+    const positions=new Map(siblings.map(el=>[el,el.getBoundingClientRect().top]));
+    const hovered=siblings.find(el=>{const r=el.getBoundingClientRect();return e.clientY>=r.top&&e.clientY<=r.bottom;});
+    if(hovered){if(e.clientY>=s.startY)hovered.after(s.item);else hovered.before(s.item);}
+    else {const next=siblings.find(el=>e.clientY<el.getBoundingClientRect().top);if(next)next.before(s.item);else siblings[siblings.length-1].after(s.item);}
+    if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches)for(const el of siblings){const delta=positions.get(el)-el.getBoundingClientRect().top;if(Math.abs(delta)>1){el._sortAnimation?.cancel();el._sortAnimation=el.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});}}
+    e.preventDefault();
+  }
+  function finishSort(cancel=false) {
+    const s=sortState;if(!s)return;sortState=null;s.ghost.remove();s.item.classList.remove('sort-placeholder');
+    const ids=[...s.parent.querySelectorAll(`:scope > ${s.selector}`)].map(el=>el.dataset.sortId);
+    suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);
+    if(cancel)render();else commitSort(s.type,ids);
   }
   function deleteCategory(id) {
     if(id==='other'||!state.categories.some(c=>c.id===id))return;
     state.categories=state.categories.filter(c=>c.id!==id);
     for(const code of Object.keys(state.categoryMap))if(state.categoryMap[code]===id)state.categoryMap[code]='other';
     for(const goal of state.goals)if(goal.scope===id)goal.scope='other';
-    delete state.allocationTargets[id];delete state.allocationGoals[id];rebaseCategoryGoals();C.recordSnapshot(state);save();closeSheet();render();
+    delete state.allocationGoals[id];rebaseCategoryGoals();C.recordSnapshot(state);save();closeSheet();render();
     toast('资产类别已删除');
   }
   function goBack() {
@@ -393,9 +455,11 @@
     'goal-detail':el=>goalDetail(el.dataset.id), 'assets-allocation':()=>navigate('allocation'),
     'allocation-edit':el=>allocationForm(el.dataset.id), login:loginSheet,sync,
     'category-edit':el=>categoryForm(el.dataset.id), 'category-accounts':el=>categoryAccountsForm(el.dataset.id),
-    'toggle-category-visible':el=>{const c=state.categories.find(x=>x.id===el.dataset.id);if(!c)return;c.visible=c.visible===false;save();render();},
+    'toggle-color-custom':el=>{const custom=el.closest('.color-picker').querySelector('.color-custom');custom.hidden=!custom.hidden;el.classList.toggle('active',!custom.hidden);},
+    'color-preset':el=>setCategoryColor(el.closest('form'),el.dataset.color),
+    'toggle-category-stats':el=>{const c=state.categories.find(x=>x.id===el.dataset.id);if(!c)return;c.statsEnabled=c.statsEnabled===false;save();render();},
     'allocation-delete-confirm':el=>confirm('删除类别目标？','只清除这个类别的目标，不影响账户或其他类别。','allocation-delete',el.dataset.id),
-    'allocation-delete':el=>{state.allocationGoals[el.dataset.id]={mode:'amount',target:0};state.allocationTargets[el.dataset.id]=0;save();closeSheet();render();toast('类别目标已删除');},
+    'allocation-delete':el=>{delete state.allocationGoals[el.dataset.id];save();closeSheet();render();toast('类别目标已删除');},
     'category-delete-confirm':el=>confirm('删除资产类别？','关联账户和引用该类别的存钱目标会转入“其他”；该类别的配置目标会删除。','category-delete',el.dataset.id),
     'category-delete':el=>deleteCategory(el.dataset.id),
     'delete-goal-confirm':el=>confirm('删除目标？','只删除目标设置，不会影响资产或小青账数据。','delete-goal',el.dataset.id),
@@ -412,21 +476,26 @@
     logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
   document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open');if(open&&e.target.closest('.allocation-row')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
-  document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;dragState={type:row.dataset.sortType,id:row.dataset.sortId,target:null,startX:e.clientX,startY:e.clientY,pointerId:e.pointerId};handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
-  document.addEventListener('pointermove',e=>{if(!dragState||e.pointerId!==dragState.pointerId)return;if(Math.hypot(e.clientX-dragState.startX,e.clientY-dragState.startY)<8)return;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));const row=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-sort-id]');if(row&&row.dataset.sortType===dragState.type&&row.dataset.sortId!==dragState.id){dragState.target=row.dataset.sortId;row.classList.add('sort-over');}else dragState.target=null;});
-  document.addEventListener('pointerup',e=>{if(!dragState||e.pointerId!==dragState.pointerId)return;const {type,id,target}=dragState;dragState=null;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));if(target)reorderItem(type,id,target);});
-  document.addEventListener('pointercancel',()=>{dragState=null;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));});
+  document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;beginSort(row,e);handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
+  document.addEventListener('pointermove',moveSort);
+  document.addEventListener('pointerup',e=>{if(sortState&&e.pointerId===sortState.pointerId)finishSort();});
+  document.addEventListener('pointercancel',()=>finishSort(true));
   document.addEventListener('pointerdown',e=>{const item=e.target.closest('.allocation-item');if(!item||item.dataset.sortId==='other'||e.target.closest('[data-drag-handle],.allocation-swipe-delete'))return;swipeState={item,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,offset:item.classList.contains('is-open')?-76:0,active:false};});
   document.addEventListener('pointermove',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy))return;s.active=true;s.item.classList.add('is-swiping');document.querySelectorAll('.allocation-item.is-open').forEach(item=>{if(item!==s.item)item.classList.remove('is-open');});}s.item.querySelector('.allocation-row').style.transform=`translateX(${Math.max(-76,Math.min(0,s.offset+dx))}px)`;e.preventDefault();});
   document.addEventListener('pointerup',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;swipeState=null;if(!s.active)return;const dx=e.clientX-s.startX;s.item.querySelector('.allocation-row').style.transform='';s.item.classList.remove('is-swiping');s.item.classList.toggle('is-open',s.offset+dx<-38);suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);});
   document.addEventListener('pointercancel',()=>{if(!swipeState)return;swipeState.item.querySelector('.allocation-row').style.transform='';swipeState.item.classList.remove('is-swiping');swipeState=null;});
-  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item');if(!item)return;const type=item.dataset.sortType,selector=type==='goal'?'.goal-list-item':'.allocation-item';const hold={item,title,type,selector,id:item.dataset.sortId,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,active:false,target:null,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;hold.active=true;swipeState=null;if(type==='category'){item.classList.remove('is-open','is-swiping');item.querySelector('.allocation-row').style.transform='';}item.classList.add('is-dragging');try{title.setPointerCapture(e.pointerId);}catch{}},380);});
-  document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.hypot(dx,dy)>8){clearTimeout(s.timer);longPressState=null;}return;}s.item.style.transform=`translateY(${dy}px)`;document.querySelectorAll(`${s.selector}.sort-over`).forEach(item=>item.classList.remove('sort-over'));const target=[...document.querySelectorAll(s.selector)].find(item=>item!==s.item&&e.clientY>=item.getBoundingClientRect().top&&e.clientY<=item.getBoundingClientRect().bottom);s.target=target?.dataset.sortId||null;target?.classList.add('sort-over');e.preventDefault();});
-  document.addEventListener('pointerup',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;clearTimeout(s.timer);longPressState=null;if(!s.active)return;s.item.style.transform='';s.item.classList.remove('is-dragging');document.querySelectorAll(`${s.selector}.sort-over`).forEach(item=>item.classList.remove('sort-over'));suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);if(s.target)reorderItem(s.type,s.id,s.target);});
-  document.addEventListener('pointercancel',()=>{const s=longPressState;if(!s)return;clearTimeout(s.timer);s.item.style.transform='';s.item.classList.remove('is-dragging');document.querySelectorAll(`${s.selector}.sort-over`).forEach(item=>item.classList.remove('sort-over'));longPressState=null;});
+  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item');if(!item)return;const hold={item,title,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;swipeState=null;if(item.classList.contains('allocation-item')){item.classList.remove('is-open','is-swiping');item.querySelector('.allocation-row').style.transform='';}beginSort(item,e);try{title.setPointerCapture(e.pointerId);}catch{}},380);});
+  document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId||sortState)return;if(Math.hypot(e.clientX-s.startX,e.clientY-s.startY)>8){clearTimeout(s.timer);longPressState=null;}});
+  document.addEventListener('pointerup',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;clearTimeout(s.timer);longPressState=null;});
+  document.addEventListener('pointercancel',()=>{if(longPressState)clearTimeout(longPressState.timer);longPressState=null;});
+  document.addEventListener('pointerdown',e=>{const sv=e.target.closest('[data-color-sv]');if(!sv)return;colorDrag={sv,form:sv.closest('form'),pointerId:e.pointerId};sv.setPointerCapture?.(e.pointerId);moveCategoryColor(e);});
+  document.addEventListener('pointermove',moveCategoryColor);
+  document.addEventListener('pointerup',e=>{if(colorDrag?.pointerId===e.pointerId)colorDrag=null;});
+  document.addEventListener('pointercancel',()=>{colorDrag=null;});
+  document.addEventListener('input',e=>{if(e.target.matches('[data-color-hue]')){const form=e.target.closest('form'),sv=form.querySelector('.color-sv');setCategoryColor(form,hsvToHex(Number(e.target.value),Number(sv.dataset.s),Number(sv.dataset.v)));}});
   document.addEventListener('change',e=>{
+    if(e.target.dataset.accountSort!==undefined){state.accountSort=e.target.value;save();render();return;}
     if(e.target.dataset.categoryCode){state.categoryMap[e.target.dataset.categoryCode]=e.target.value;rebaseCategoryGoals();C.recordSnapshot(state);save();render();toast('账户分类已保存');}
-    if(e.target.id==='allocation-mode'){overlay.querySelector('.unit').textContent=e.target.value==='percent'?'%':'元';overlay.querySelector('[name="target"]').max=e.target.value==='percent'?'100':'';}
   });
   document.addEventListener('submit',async e=>{
     const form=e.target;if(!form.dataset.form)return;e.preventDefault();const data=Object.fromEntries(new FormData(form)),type=form.dataset.form;
@@ -437,8 +506,8 @@
       if(old)state.goals[state.goals.findIndex(x=>x.id===g.id)]=g;else state.goals.push(g);save();closeSheet();render();toast('目标已保存');
     }else if(type==='allocation'){
       const id=form.dataset.id,target=Number(data.target);
-      if(!state.categories.some(c=>c.id===id)||!['amount','percent'].includes(data.mode)||data.target===''||!Number.isFinite(target)||target<0||data.mode==='percent'&&target>100){formError('请输入有效目标值');return;}
-      state.allocationGoals[id]={mode:data.mode,target};state.allocationTargets[id]=target;save();closeSheet();render();toast('类别目标已保存');
+      if(!state.categories.some(c=>c.id===id)||data.target===''||!Number.isFinite(target)||target<0||target>1e12){formError('请输入有效目标金额');return;}
+      state.allocationGoals[id]={target};save();closeSheet();render();toast('类别目标已保存');
     }else if(type==='task'){
       if(!data.text.trim()){formError('请填写待办内容');return;}
       if(data.deadline&&!Number.isFinite(C.dateDay(data.deadline))){formError('请选择有效日期');return;}
@@ -451,9 +520,8 @@
       if(!data.name.trim()||!/^#[0-9a-fA-F]{6}$/.test(data.color)){formError('请填写名称并选择颜色');return;}
       const id=form.dataset.id||'cat_'+uid();
       if(state.categories.some(c=>c.id!==id&&c.name===data.name.trim())){formError('已有同名类别');return;}
-      const cat={id,name:data.name.trim(),color:data.color,visible:state.categories.find(c=>c.id===id)?.visible!==false};
+      const cat={id,name:data.name.trim(),color:data.color,statsEnabled:state.categories.find(c=>c.id===id)?.statsEnabled!==false};
       const idx=state.categories.findIndex(c=>c.id===id);if(idx>=0)state.categories[idx]=cat;else state.categories.push(cat);
-      if(state.allocationTargets[id]==null)state.allocationTargets[id]=0;
       assignCategoryAccounts(id,new Set(new FormData(form).getAll('account')));
       save();closeSheet();render();toast('资产类别已保存');
     }else if(type==='category-accounts'){
@@ -471,5 +539,5 @@
   window.hubBack=goBack;
   // Small explicit interface for browser QA, never exposes native credentials.
   window.shiji={get state(){return state;}, setState:s=>{state=C.migrate(s);render();},render,navigate,openGoal:goalForm};
-  call('load').then(result=>{if(result.ok){const hadZeroAssets=Array.isArray(result.state?.assets)&&result.state.assets.some(a=>a?.source==='xiaoqing'&&Number(a.balance)===0);state=C.migrate(result.state);connected=!!result.connected;updateState.current=result.currentVersion||updateState.current;if(hadZeroAssets)save();}else toast(result.error);render();if(connected&&C.autoSyncDue(state))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});
+  call('load').then(result=>{if(result.ok){const hadZeroAssets=Array.isArray(result.state?.assets)&&result.state.assets.some(a=>a?.source==='xiaoqing'&&Number(a.balance)===0),migrated=Number(result.state?.version||0)<C.SCHEMA;state=C.migrate(result.state);connected=!!result.connected;updateState.current=result.currentVersion||updateState.current;if(hadZeroAssets||migrated)save();}else toast(result.error);render();if(connected&&C.autoSyncDue(state))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});
 })();

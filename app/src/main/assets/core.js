@@ -4,7 +4,7 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 10;
+  const SCHEMA = 12;
   const WEALTH_BLOCKS = [
     {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}
   ];
@@ -43,28 +43,35 @@
     { id: 'other', name: '其他', color: '#8796ae' }
   ];
   function empty() {
-    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,visible:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
-      allocationMode: 'amount', allocationTargets: { stock: 0, bond: 0, cash: 0, other: 0 }, allocationGoals: {},
-      modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), lastSync: null, lastSyncAttempt:null, demo: false };
+    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
+      allocationGoals: {},
+      modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), accountSort:'amount-desc', lastSync: null, lastSyncAttempt:null, demo: false };
   }
   function migrate(value) {
     const s = Object.assign(empty(), value || {});
+    if (!['amount-desc','amount-asc','original'].includes(s.accountSort)) s.accountSort='amount-desc';
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
     s.assets=s.assets.filter(a=>a&&typeof a==='object'&&!(a.source==='xiaoqing'&&Number(a.balance)===0));
     s.goals=s.goals.filter(g=>g&&typeof g==='object').map(g=>({...g,visible:g.visible!==false}));
+    if(Number(value?.version||0)<11&&s.assets.length)for(const g of s.goals)if(!g.scope||g.scope==='all'){
+      g.baseline=s.assets.filter(a=>a.currency==='RMB'&&!a.reckonIn&&Number(a.balance)>0).reduce((sum,a)=>sum+Number(a.balance),0);
+      g.createdDate=today();g.baselinePending=false;
+    }
     s.tasks = s.tasks.filter(t=>t&&typeof t==='object').map(t=>({...t,priority:['low','medium','high'].includes(t.priority)?t.priority:'medium'}));
     s.categoryMap = s.categoryMap && typeof s.categoryMap === 'object' ? s.categoryMap : {};
-    s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)).map(c=>({...c,visible:c.visible!==false})) : CATEGORIES.map(c => ({...c,visible:true}));
-    if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other'),visible:true});
+    s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)).map(c=>({...c,statsEnabled:c.statsEnabled===undefined?c.visible!==false:c.statsEnabled!==false})) : CATEGORIES.map(c => ({...c,statsEnabled:true}));
+    if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other'),statsEnabled:true});
     const order=Array.isArray(s.wealthOrder)?s.wealthOrder:[];
     s.wealthOrder=[...new Set(order.filter(id=>WEALTH_BLOCKS.some(b=>b.id===id)))].concat(WEALTH_BLOCKS.map(b=>b.id).filter(id=>!order.includes(id)));
-    s.allocationTargets = Object.assign(empty().allocationTargets, s.allocationTargets || {});
     const savedGoals=s.allocationGoals&&typeof s.allocationGoals==='object'?s.allocationGoals:{};
-    s.allocationGoals=Object.fromEntries(s.categories.filter(c=>savedGoals[c.id]||Number(s.allocationTargets[c.id])>0).map(c=>{
-      const goal=savedGoals[c.id]||{mode:s.allocationMode,target:s.allocationTargets[c.id]};
-      const mode=goal.mode==='percent'?'percent':'amount',target=Number(goal.target);
-      return [c.id,{mode,target:Number.isFinite(target)&&target>=0?target:0}];
+    const legacyTargets=s.allocationTargets||{};
+    const statsBase=s.assets.filter(a=>included(a)&&s.categories.find(c=>c.id===category(s,a))?.statsEnabled!==false).reduce((sum,a)=>sum+Number(a.balance),0);
+    s.allocationGoals=Object.fromEntries(s.categories.filter(c=>savedGoals[c.id]||Number(legacyTargets[c.id])>0).map(c=>{
+      const goal=savedGoals[c.id]||{mode:s.allocationMode,target:legacyTargets[c.id]};
+      const raw=Number(goal.target),target=goal.mode==='percent'&&Number(value?.version||0)<12?round(statsBase*raw/100):raw;
+      return [c.id,{target:Number.isFinite(target)&&target>=0?target:0}];
     }));
+    delete s.allocationTargets;delete s.allocationMode;
     const existing = Array.isArray(s.modules) ? s.modules.filter(m => MODULES.some(d => d.id === m.id)) : [];
     s.modules = existing.map(m => ({ id:m.id, enabled:!!m.enabled, visible:m.visible !== false }))
       .concat(MODULES.filter(m => !existing.some(e => e.id === m.id)).map(m => ({ id: m.id, enabled: m.enabled, visible:true })));
@@ -117,7 +124,7 @@
     const score = Math.max(0, Math.min(1, 0.78 * timePressure + 0.11 * level));
     return {days, score, hue:Math.round(214 + 158 * score), label:days < 0 ? `逾期 ${-days} 天` : days === 0 ? '今天到期' : `剩 ${days} 天`};
   }
-  function goalValue(s, g) { const t = totals(s); return g.scope && g.scope !== 'all' ? (t.categories[g.scope] || 0) : t.total; }
+  function goalValue(s, g) { const t = totals(s); return g.scope && g.scope !== 'all' ? (t.categories[g.scope] || 0) : t.grossAssets; }
   function goalMetrics(s, g, now = today()) {
     const current = goalValue(s, g), amount = Number(g.amount), remaining = Math.max(0, round(amount - current));
     const nowDay = dateDay(now), deadlineDay = dateDay(g.deadline), createdDay = dateDay(g.createdDate);
@@ -128,11 +135,11 @@
     let first = null, firstDay = Infinity;
     for (const h of s.history) {
       const day = dateDay(h.date), age = nowDay - day;
-      if (age >= 7 && age <= 30 && (!scoped || h.categoryBasis === basis) && day < firstDay) { first = h; firstDay = day; }
+      if (age >= 7 && age <= 30 && (scoped ? h.categoryBasis === basis : Number.isFinite(h.grossAssets)) && day < firstDay) { first = h; firstDay = day; }
     }
     let estimate = null, dailyRate = null;
     if (first) {
-      const initial = g.scope && g.scope !== 'all' ? first.categories[g.scope] || 0 : first.total;
+      const initial = g.scope && g.scope !== 'all' ? first.categories[g.scope] || 0 : first.grossAssets;
       const span = nowDay - firstDay;
       dailyRate = (current - initial) / span;
       if (dailyRate > 0 && !complete) { const d = new Date((nowDay + Math.ceil(remaining / dailyRate)) * 86400000); estimate = d.toISOString().slice(0, 10); }
@@ -144,19 +151,20 @@
   }
   function allocation(s) {
     const t = totals(s);
+    const base=categories(s).filter(c=>c.statsEnabled!==false).reduce((sum,c)=>sum+Math.max(0,t.categories[c.id]||0),0);
+    const targetBase=categories(s).filter(c=>c.statsEnabled!==false).reduce((sum,c)=>sum+Math.max(0,Number(s.allocationGoals?.[c.id]?.target)||0),0);
     return categories(s).map(c => {
-      const saved=s.allocationGoals?.[c.id], mode=saved?.mode||s.allocationMode||'amount', percent=mode==='percent';
-      const current = t.categories[c.id], target = Number(saved?.target ?? s.allocationTargets?.[c.id] ?? 0);
-      const desired = percent ? t.grossAssets * target / 100 : target;
-      const share = t.grossAssets > 0 ? current / t.grossAssets * 100 : 0;
-      return Object.assign({}, c, { current, share, mode, target, desired, gap: round(desired - current),
-        deviation: percent ? round(share - target) : null,
+      const current = t.categories[c.id], target = Number(s.allocationGoals?.[c.id]?.target)||0;
+      const desired = target, targetShare=c.statsEnabled!==false&&targetBase>0?target/targetBase*100:0;
+      const share = c.statsEnabled!==false&&base>0 ? current / base * 100 : 0;
+      return Object.assign({}, c, { current, share, target, desired, targetShare, gap: round(desired - current),
+        deviation:round(share-targetShare),
         progress: desired > 0 ? Math.max(0, Math.min(100, current / desired * 100)) : 0 });
     });
   }
   function categoryBasis(s) { return JSON.stringify(Object.entries(s.categoryMap).sort(([a],[b])=>a.localeCompare(b))); }
   function recordSnapshot(s, date = today()) {
-    const t = totals(s), entry = { date, total: t.total, categories: t.categories, categoryBasis:categoryBasis(s) };
+    const t = totals(s), entry = { date, total: t.total, grossAssets:t.grossAssets, categories: t.categories, categoryBasis:categoryBasis(s) };
     s.history = s.history.filter(h => h.date !== date).concat(entry).sort((a, b) => dateDay(a.date) - dateDay(b.date));
     return entry;
   }
@@ -170,15 +178,9 @@
     if (!Number.isFinite(dateDay(g.deadline))) return '请选择有效的截止日期';
     return null;
   }
-  function validateAllocation(mode, targets, defs = CATEGORIES) {
-    const vals = defs.map(c => Number(targets[c.id]));
-    if (vals.some(v => !Number.isFinite(v) || v < 0)) return '目标不能是负数或空值';
-    if (mode === 'percent' && Math.abs(vals.reduce((a,b) => a+b,0) - 100) > 0.001) return '比例目标的合计需要等于 100%';
-    return null;
-  }
   function demo() {
     const s = empty(); s.demo = true;
-    s.allocationMode='percent';s.allocationTargets={stock:40,bond:30,cash:30,other:0};
+    s.allocationGoals={stock:{target:34400},bond:{target:25800},cash:{target:25800}};
     s.assets = [
       { code:'demo-stock', name:'股票账户', balance:32000, currency:'RMB', reckonIn:false, type:'other' },
       { code:'demo-bond', name:'债券账户', balance:24000, currency:'RMB', reckonIn:false, type:'other' },
@@ -189,10 +191,10 @@
     const date = today(), future = new Date(); future.setFullYear(future.getFullYear()+2);
     const start = new Date(); start.setDate(start.getDate()-90);
     s.goals = [{ id:'demo-goal',name:'攒下第一笔底气',amount:200000,deadline:today(future),scope:'all',createdDate:today(start),baseline:70000,demo:true }];
-    for(let i=60;i>=0;i-=10) { const d=new Date(); d.setDate(d.getDate()-i);s.history.push({date:today(d),total:81000-i*150,categories:{stock:32000-i*50,bond:24000-i*50,cash:30000-i*50,other:0},categoryBasis:categoryBasis(s)}); }
+    for(let i=60;i>=0;i-=10) { const d=new Date(); d.setDate(d.getDate()-i);s.history.push({date:today(d),total:81000-i*150,grossAssets:86000-i*150,categories:{stock:32000-i*50,bond:24000-i*50,cash:30000-i*50,other:0},categoryBasis:categoryBasis(s)}); }
     s.lastSync = new Date().toISOString();
     return s;
   }
   return { SCHEMA, WEALTH_BLOCKS, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, autoSyncDue, dateDay, taskUrgency,
-    goalValue, goalMetrics, allocation, recordSnapshot, monthChange, validateGoal, validateAllocation, demo };
+    goalValue, goalMetrics, allocation, recordSnapshot, monthChange, validateGoal, demo };
 });

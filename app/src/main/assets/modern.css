@@ -393,3 +393,39 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .overview-trend-dates { display:flex; justify-content:space-between; color:#9aa7b9; font-size:10px; margin-top:0; }
 .overview-trend-empty { display:grid; place-items:center; height:86px; margin-top:8px; color:var(--muted); font-size:11px; background:#f8faff; border-radius:11px; }
 .wealth-block .asset-link-section { margin-top:11px; }
+.shell { padding-top:16px; }
+.page-title { margin-bottom:14px; }
+.navigation-title { margin-bottom:12px; }
+.accounts-head { gap:8px; }
+.accounts-head .section-actions { align-items:center; }
+.account-sort { max-width:132px; min-height:32px; padding:0 7px; border:1px solid #e5ebf5; border-radius:9px; background:#fff; color:#53647d; font-size:11px; }
+.account:not(.excluded) small { color:#8b98aa; }
+.sort-placeholder { border:1px dashed #a9bcde !important; background:#eef3ff !important; box-shadow:inset 0 0 0 3px #f7faff !important; }
+.sort-placeholder>* { visibility:hidden; }
+.sort-ghost { position:fixed !important; z-index:100 !important; pointer-events:none !important; margin:0 !important; opacity:.94; background:#fff; box-shadow:0 18px 45px #172b4d30 !important; transform:rotate(.4deg); }
+.sort-ghost.sortable-section { overflow:hidden; border-radius:18px; }
+.allocation-accounts { flex-wrap:wrap; overflow:visible; padding-bottom:12px; }
+.allocation-account-chip { max-width:calc(100% - 34px); }
+.category-stats-control { display:flex; align-items:center; gap:7px; margin-left:auto; }
+.category-stats-control>span { font-size:10px; font-weight:650; color:#a27680; white-space:nowrap; }
+.category-stats-control>span.active { color:#5577bd; }
+.category-stats-control .switch { width:30px; height:18px; padding:3px; margin-left:0; }
+.category-stats-control .switch i { width:12px; height:12px; }
+.category-stats-control .switch.on i { transform:translateX(12px); }
+.category-select-wrap { position:relative; display:inline-flex; max-width:116px; margin-top:7px; }
+.account .category-select-wrap select { appearance:none; -webkit-appearance:none; width:100%; max-width:none; min-height:31px; margin:0; padding:5px 27px 5px 10px; border:1px solid #e0e9f8; border-radius:10px; background:#f5f8ff; color:#42629d; font-size:11px; font-weight:650; }
+.category-select-wrap svg { position:absolute; right:9px; top:50%; width:12px; height:12px; transform:translateY(-50%) rotate(90deg); color:#6b83ad; pointer-events:none; }
+[hidden] { display:none !important; }
+.color-picker { margin-top:18px; }
+.color-picker-heading { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; color:#5b6675; font-size:13px; }
+.color-custom-toggle { color:var(--green); font-size:12px; font-weight:650; padding:4px 0; }
+.color-swatches { display:grid; grid-template-columns:repeat(6,1fr); gap:10px; }
+.color-swatch { width:32px; height:32px; margin:auto; border-radius:11px; background:var(--swatch); border:3px solid #fff; box-shadow:0 0 0 1px #d9e1ee; }
+.color-swatch.selected { box-shadow:0 0 0 2px var(--green); }
+.color-custom { padding:15px; margin-top:14px; border:1px solid #e7edf7; border-radius:15px; background:#f8faff; }
+.color-sv { position:relative; height:138px; border-radius:11px; background:linear-gradient(to top,#000,transparent),linear-gradient(to right,#fff,transparent),hsl(var(--hue) 100% 50%); touch-action:none; cursor:crosshair; }
+.color-sv i { position:absolute; width:16px; height:16px; border:2px solid #fff; border-radius:50%; box-shadow:0 1px 5px #0007; transform:translate(-50%,-50%); pointer-events:none; }
+.color-hue { width:100%; height:16px; margin:14px 0 10px; appearance:none; -webkit-appearance:none; border-radius:999px; background:linear-gradient(to right,red,#ff0,#0f0,#0ff,#00f,#f0f,red); }
+.color-hue::-webkit-slider-thumb { appearance:none; width:19px; height:19px; border:3px solid #fff; border-radius:50%; box-shadow:0 1px 5px #0005; background:var(--green); }
+.color-current { display:flex; align-items:center; gap:8px; color:#64748c; font-size:11px; font-variant-numeric:tabular-nums; }
+.color-current i { width:17px; height:17px; border-radius:5px; border:1px solid #d7dfeb; }
