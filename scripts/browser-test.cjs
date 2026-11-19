@@ -186,7 +186,7 @@ const sleep=ms=>new Promise(r=>setTimeout(r,ms));
     await expect('Array.from(document.querySelectorAll(".bottom-nav .nav-item")).map(x=>x.textContent.trim())',["资产","待办","设置"],'Navigation has two pages and settings');
     await expect('!!document.querySelector("[data-page=tools]")',false,'No features page');
     await screenshot('07-settings');
-    await expect('document.querySelector(".update-button").textContent.includes("v0.1.8")',true,'Installed version appears on update button');
+    await expect('document.querySelector(".update-button").textContent.includes("v0.1.9")',true,'Installed version appears on update button');
     await click('[data-action="update-action"]');
     await expect('document.querySelector(".update-button").textContent.includes("检查失败")',true,'Browser preview reports unavailable update check');
     await click('[data-action="page-settings"][data-id="wealth"]');

@@ -28,12 +28,13 @@ import javax.crypto.spec.GCMParameterSpec;
 public class MainActivity extends Activity {
     private static final String ORIGIN = "https://appassets.androidplatform.net/assets/";
     private static final String API = "https://c-api.bill.youqian.pro";
-    private static final String RELEASE_API = "https://api.github.com/repos/mio-1/Morrow/releases/latest";
     private static final String RELEASE_PAGE = "https://github.com/mio-1/Morrow/releases/";
     private static final String RELEASE_DOWNLOAD = RELEASE_PAGE + "download/";
+    private static final String RELEASE_INFO = RELEASE_PAGE + "latest/download/build-info.json";
     private static final String KEY_ALIAS = "shiji.session.v1";
     private WebView web;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService updateExecutor = Executors.newSingleThreadExecutor();
     private AtomicFile stateFile;
     private volatile String activeDownloadId;
     private volatile String cancelledDownloadId;
@@ -105,7 +106,8 @@ public class MainActivity extends Activity {
                 return;
             }
             if ("downloadUpdate".equals(action)) activeDownloadId = id;
-            executor.execute(() -> {
+            ("checkUpdate".equals(action) || "downloadUpdate".equals(action) || "installUpdate".equals(action)
+                ? updateExecutor : executor).execute(() -> {
                 JSONObject result;
                 try {
                     JSONObject args = new JSONObject(payload);
@@ -214,38 +216,28 @@ public class MainActivity extends Activity {
     }
 
     private JSONObject checkUpdate() throws Exception {
-        HttpURLConnection con = (HttpURLConnection) new URL(RELEASE_API).openConnection(Proxy.NO_PROXY);
-        con.setInstanceFollowRedirects(false);
-        con.setConnectTimeout(10000); con.setReadTimeout(10000);
-        con.setRequestProperty("Accept", "application/vnd.github+json");
-        con.setRequestProperty("User-Agent", "Shiji-Android-Update-Check");
+        HttpURLConnection con = (HttpURLConnection) new URL(RELEASE_INFO).openConnection(Proxy.NO_PROXY);
+        con.setInstanceFollowRedirects(true);
+        con.setConnectTimeout(10000); con.setReadTimeout(15000);
+        con.setRequestProperty("User-Agent", "Morrow-Android-Update");
         try {
             int status = con.getResponseCode();
             android.content.pm.PackageInfo installed = getPackageManager().getPackageInfo(getPackageName(), 0);
             JSONObject result = ok().put("currentVersion", installed.versionName).put("currentCode", installed.versionCode);
             if (status == 404) return result.put("published", false);
             if (status != 200) throw new UserError("检查更新暂时不可用（" + status + "）");
-            JSONObject release;
-            try (InputStream in = con.getInputStream()) { release = new JSONObject(read(in, 200000)); }
-            String url = release.optString("html_url"), tag = release.optString("tag_name");
-            if (!url.startsWith(RELEASE_PAGE) || tag.isEmpty()) throw new UserError("更新信息格式无效");
-            int latestCode = -1;
-            String apkUrl = "", apkName = "", digest = "", checksumUrl = "";
-            JSONArray assets = release.optJSONArray("assets");
-            if (assets != null) for (int i = 0; i < assets.length(); i++) {
-                JSONObject asset = assets.getJSONObject(i);
-                String name = asset.optString("name");
-                java.util.regex.Matcher match = java.util.regex.Pattern.compile("^Morrow-v[0-9]+\\.[0-9]+\\.[0-9]+-vc([0-9]+)\\.apk$").matcher(name);
-                if (match.matches()) {
-                    int code = Integer.parseInt(match.group(1));
-                    if (code > latestCode) { latestCode = code; apkName = name; apkUrl = asset.optString("browser_download_url"); digest = asset.optString("digest"); }
-                }
-                if ("SHA256.txt".equals(name)) checksumUrl = asset.optString("browser_download_url");
-            }
-            if (latestCode < 0) throw new UserError("最新版本尚未提供 Android 安装包");
-            if (!apkUrl.startsWith(RELEASE_DOWNLOAD) || !apkUrl.endsWith("/" + apkName)) throw new UserError("安装包地址无效");
+            if (!"https".equalsIgnoreCase(con.getURL().getProtocol())) throw new UserError("更新地址不安全");
+            JSONObject info;
+            try (InputStream in = con.getInputStream()) { info = new JSONObject(read(in, 2048)); }
+            String version = info.optString("version"), digest = info.optString("sha256");
+            int latestCode = info.optInt("versionCode", -1);
+            if (!getPackageName().equals(info.optString("package")) || !version.matches("[0-9]+\\.[0-9]+\\.[0-9]+")
+                || latestCode < 1 || !digest.matches("(?i)[0-9a-f]{64}"))
+                throw new UserError("更新信息格式无效");
+            String tag = "v" + version, apkName = "Morrow-" + tag + "-vc" + latestCode + ".apk";
+            String apkUrl = RELEASE_DOWNLOAD + tag + "/" + apkName;
             return result.put("published", true).put("latestVersion", tag).put("latestCode", latestCode)
-                .put("apkUrl", apkUrl).put("apkName", apkName).put("digest", digest).put("checksumUrl", checksumUrl);
+                .put("apkUrl", apkUrl).put("apkName", apkName).put("digest", digest);
         } catch (IOException e) { throw new UserError("暂时无法检查更新，请检查网络后重试"); }
         finally { con.disconnect(); }
     }
@@ -397,5 +389,5 @@ public class MainActivity extends Activity {
     private JSONObject error(String message) {try{return new JSONObject().put("ok",false).put("error",message);}catch(JSONException e){throw new RuntimeException(e);}}
     private static class UserError extends Exception {UserError(String message){super(message);}}
     @Override public void onBackPressed(){web.evaluateJavascript("window.hubBack ? window.hubBack() : false",value->{if("false".equals(value))finish();});}
-    @Override public void onDestroy(){executor.shutdown();web.removeJavascriptInterface("NativeHub");web.destroy();super.onDestroy();}
+    @Override public void onDestroy(){executor.shutdown();updateExecutor.shutdown();web.removeJavascriptInterface("NativeHub");web.destroy();super.onDestroy();}
 }

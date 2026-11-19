@@ -3,7 +3,7 @@
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
   let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.8',latest:''}, downloadSession=null;
+  let updateState={status:'idle',current:'0.1.9',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
