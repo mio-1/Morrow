@@ -45,7 +45,7 @@
   function empty() {
     return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,visible:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
       allocationMode: 'amount', allocationTargets: { stock: 0, bond: 0, cash: 0, other: 0 }, allocationGoals: {},
-      modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), lastSync: null, demo: false };
+      modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), lastSync: null, lastSyncAttempt:null, demo: false };
   }
   function migrate(value) {
     const s = Object.assign(empty(), value || {});
@@ -77,19 +77,20 @@
   }
   function cents(n) { return Math.round(Number(n || 0) * 100); }
   function round(n) { return Math.round(n * 100) / 100; }
-  function included(a) { return !a.reckonIn && a.currency === 'RMB'; }
+  function included(a) { return !a.reckonIn && a.currency === 'RMB' && cents(a.balance) > 0; }
   function categories(s) { return s.categories || CATEGORIES; }
   function category(s, a) { return categories(s).some(c => c.id === s.categoryMap[a.code]) ? s.categoryMap[a.code] : 'other'; }
   function totals(s) {
     const values = Object.fromEntries(categories(s).map(c=>[c.id,0]));
     let total = 0, grossAssets = 0, liabilities = 0, excludedTotal = 0, count = 0, excluded = 0, foreign = 0;
     for (const a of s.assets) {
-      if (a.reckonIn) { excluded++;if(a.currency==='RMB')excludedTotal+=cents(a.balance);continue; }
       if (a.currency !== 'RMB') { foreign++; continue; }
       const amount = cents(a.balance), id = s.categoryMap?.[a.code];
+      if (amount < 0) { liabilities -= amount; total += amount; continue; }
+      if (a.reckonIn) { excluded++; excludedTotal += amount; continue; }
       values[Object.hasOwn(values,id) ? id : 'other'] += amount;
       total += amount;
-      if(amount>=0)grossAssets+=amount;else liabilities-=amount;
+      grossAssets+=amount;
       count++;
     }
     return { total: total / 100, grossAssets:grossAssets/100, liabilities:liabilities/100, excludedTotal:excludedTotal/100, categories: Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v / 100])), included:count, excluded, foreign };
@@ -103,6 +104,11 @@
     return utc.getTime() / 86400000;
   }
   function today(d = new Date()) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+  function autoSyncDue(s, now = Date.now()) {
+    const lastSync=Date.parse(s.lastSync||''), lastAttempt=Date.parse(s.lastSyncAttempt||'');
+    const latest=Math.max(Number.isFinite(lastSync)?lastSync:0,Number.isFinite(lastAttempt)?lastAttempt:0);
+    return now-latest>12*60*60*1000;
+  }
   function taskUrgency(task, now = today()) {
     const days = dateDay(task.deadline) - dateDay(now);
     if (!Number.isFinite(days)) return null;
@@ -141,8 +147,8 @@
     return categories(s).map(c => {
       const saved=s.allocationGoals?.[c.id], mode=saved?.mode||s.allocationMode||'amount', percent=mode==='percent';
       const current = t.categories[c.id], target = Number(saved?.target ?? s.allocationTargets?.[c.id] ?? 0);
-      const desired = percent ? Math.max(0, t.total) * target / 100 : target;
-      const share = t.total > 0 ? current / t.total * 100 : 0;
+      const desired = percent ? t.grossAssets * target / 100 : target;
+      const share = t.grossAssets > 0 ? current / t.grossAssets * 100 : 0;
       return Object.assign({}, c, { current, share, mode, target, desired, gap: round(desired - current),
         deviation: percent ? round(share - target) : null,
         progress: desired > 0 ? Math.max(0, Math.min(100, current / desired * 100)) : 0 });
@@ -183,10 +189,10 @@
     const date = today(), future = new Date(); future.setFullYear(future.getFullYear()+2);
     const start = new Date(); start.setDate(start.getDate()-90);
     s.goals = [{ id:'demo-goal',name:'攒下第一笔底气',amount:200000,deadline:today(future),scope:'all',createdDate:today(start),baseline:70000,demo:true }];
-    for(let i=60;i>=0;i-=10) { const d=new Date(); d.setDate(d.getDate()-i);s.history.push({date:today(d),total:86000-i*150,categories:{stock:32000-i*50,bond:24000-i*50,cash:30000-i*50,other:0},categoryBasis:categoryBasis(s)}); }
+    for(let i=60;i>=0;i-=10) { const d=new Date(); d.setDate(d.getDate()-i);s.history.push({date:today(d),total:81000-i*150,categories:{stock:32000-i*50,bond:24000-i*50,cash:30000-i*50,other:0},categoryBasis:categoryBasis(s)}); }
     s.lastSync = new Date().toISOString();
     return s;
   }
-  return { SCHEMA, WEALTH_BLOCKS, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, dateDay, taskUrgency,
+  return { SCHEMA, WEALTH_BLOCKS, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, autoSyncDue, dateDay, taskUrgency,
     goalValue, goalMetrics, allocation, recordSnapshot, monthChange, validateGoal, validateAllocation, demo };
 });

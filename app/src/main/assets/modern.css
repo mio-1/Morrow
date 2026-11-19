@@ -130,10 +130,6 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .split-tabs .selected { box-shadow:0 1px 5px #16284b1c; }
 .primary { font-size:14px; font-weight:650; min-height:48px; border-radius:13px; }
 .feature-group,.settings-group { background:#fff; border:1px solid #e9edf4; border-radius:20px; box-shadow:var(--shadow); overflow:hidden; }
-.wealth-summary { display:flex; flex-direction:column; gap:6px; margin-bottom:20px; padding:20px 22px; }
-.wealth-summary span { font-size:12px; color:var(--muted); }
-.wealth-summary strong { font-size:30px; letter-spacing:-1px; font-weight:700; font-variant-numeric:tabular-nums; }
-.wealth-summary small { font-size:11px; color:var(--muted); }
 .wealth-tabs { margin-bottom:22px; }
 .feature-entry { width:100%; min-height:79px; display:flex; align-items:center; gap:14px; padding:14px 17px; text-align:left; border-bottom:1px solid var(--line); }
 .feature-entry:last-child { border-bottom:0; }
@@ -221,9 +217,23 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .nav-item { min-height:54px; gap:5px; font-size:10px; }
 .nav-item svg { width:20px; height:20px; }
 .nav-item.active svg { background:#edf3ff; border-radius:10px; box-sizing:content-box; padding:6px; margin:-6px; stroke-width:2; }
-.update-status { display:flex; flex-direction:column; gap:9px; min-height:92px; padding:8px 0 4px; color:var(--muted); font-size:13px; }
-.update-status strong { color:var(--ink); font-size:17px; font-weight:680; }
-.update-status .primary { margin-top:12px; }
+.update-group { padding:10px 14px; }
+.update-button { display:flex; align-items:center; gap:12px; width:100%; padding:13px 14px; text-align:left; border-radius:15px; background:#f3f6fc; color:var(--ink); }
+.update-button:disabled { opacity:.7; }
+.update-button.has-update { background:#eaf1ff; }
+.update-button-icon { display:grid; place-items:center; flex:none; width:34px; height:34px; border-radius:11px; background:#fff; color:var(--green); }
+.update-button-icon svg { width:17px; height:17px; }
+.update-button-copy { display:flex; flex:1; flex-direction:column; gap:4px; min-width:0; }
+.update-button-copy strong { font-size:13px; font-weight:660; }
+.update-button-copy small { color:var(--muted); font-size:11px; }
+.update-button>svg { flex:none; width:15px; height:15px; color:#9ba9be; }
+.backdrop.update-dialog { align-items:center; padding:20px; }
+.update-dialog .sheet { width:100%; max-width:400px; margin:0; padding:18px 22px 22px; border-radius:24px; box-shadow:0 24px 70px #152b5130; }
+.update-dialog .handle { display:none; }
+.update-download { display:flex; flex-direction:column; gap:18px; padding-top:6px; }
+.update-progress-label { font-size:13px; font-weight:600; color:var(--ink); }
+.update-progress-track { height:7px; overflow:hidden; border-radius:999px; background:#e8edf5; }
+.update-progress-bar { width:0; height:100%; border-radius:inherit; background:var(--green); transition:width .2s ease; }
 /* Compact system tab bar; keep the bottom safe area clear. */
 .bottom-nav { padding:5px 12px calc(5px + env(safe-area-inset-bottom)); }
 .nav-item { min-height:39px; gap:2px; font-size:10px; }
@@ -294,6 +304,8 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .sort-over { outline:2px solid var(--green); outline-offset:-2px; border-radius:14px; }
 .goal-list-item { background:#fff; border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow); margin-bottom:13px; overflow:hidden; }
 .goal-list-item .goal-card { margin:0; border:0; border-radius:0; box-shadow:none; }
+.goal-list-item .goal-top { touch-action:none; -webkit-user-select:none; user-select:none; }
+.goal-list-item.is-dragging { position:relative; z-index:3; box-shadow:0 14px 35px #1c30512b; }
 .goal-list-item.is-hidden .goal-card { opacity:.56; }
 .goal-list-tools { min-height:51px; display:flex; align-items:center; gap:10px; padding:5px 12px; border-top:1px solid var(--line); }
 .goal-list-tools>span { flex:1; color:var(--muted); font-size:11px; }
@@ -337,6 +349,9 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .allocation-account-chip { display:flex; align-items:center; gap:5px; min-width:0; max-width:40%; padding:3px 6px 3px 3px; }
 .allocation-account-logo { width:20px; height:20px; display:grid; place-items:center; flex:none; border-radius:6px; background:#e7efff; color:var(--green); }
 .allocation-account-logo svg { width:12px; height:12px; }
+.allocation-account-logo img { width:20px; height:20px; object-fit:contain; border-radius:5px; }
+.account-badge { width:40px; height:40px; border-radius:13px; background:#f5f7fb; overflow:hidden; }
+.account-badge img { width:34px; height:34px; object-fit:contain; }
 .allocation-account-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:#586b8e; }
 .allocation-account-more { display:grid; place-items:center; min-width:27px; color:var(--muted); }
 .allocation-account-add { width:29px; flex:none; display:grid; place-items:center; color:#356bee; font-size:18px; line-height:1; }

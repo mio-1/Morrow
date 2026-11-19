@@ -2,11 +2,37 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const C=require('../app/src/main/assets/core.js');
 
+test('opening a recently synced app reads local state without requesting a sync',async()=>{
+  const actions=[];
+  const app={innerHTML:''},overlay={innerHTML:''};
+  const state=C.empty();state.lastSync=new Date().toISOString();
+  global.window={HubCore:C,scrollTo(){},NativeHub:{call(id,action){actions.push(action);setImmediate(()=>window.onNativeResult(id,{ok:true,connected:true,state}));}}};
+  global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
+  delete require.cache[require.resolve('../app/src/main/assets/app.js')];
+  require('../app/src/main/assets/app.js');
+  await new Promise(resolve=>setTimeout(resolve,20));
+  assert.deepEqual(actions,['load']);
+});
+
+test('opening after twelve hours requests one automatic sync',async()=>{
+  const actions=[];
+  const app={innerHTML:''},overlay={innerHTML:''};
+  const state=C.empty();state.lastSync=new Date(Date.now()-13*60*60*1000).toISOString();
+  global.window={HubCore:C,scrollTo(){},NativeHub:{call(id,action){actions.push(action);const result=action==='load'?{ok:true,connected:true,state}:action==='sync'?{ok:true,accounts:[],syncedAt:Date.now()}:{ok:true};setImmediate(()=>window.onNativeResult(id,result));}}};
+  global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
+  delete require.cache[require.resolve('../app/src/main/assets/app.js')];
+  require('../app/src/main/assets/app.js');
+  await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(actions.filter(action=>action==='sync').length,1);
+  assert.equal(actions[0],'load');
+});
+
 test('asset and todo pages have independent visibility settings',async()=>{
   const app={innerHTML:''}, overlay={innerHTML:''};
   global.window={HubCore:C,scrollTo(){}};
   global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
   global.localStorage={getItem(){return null;},setItem(){}};
+  delete require.cache[require.resolve('../app/src/main/assets/app.js')];
   require('../app/src/main/assets/app.js');
   await new Promise(resolve=>setImmediate(resolve));
   const s=C.demo();

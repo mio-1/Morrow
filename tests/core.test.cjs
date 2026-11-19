@@ -17,14 +17,16 @@ test('todo priority migrates safely and urgency varies smoothly with time and pr
 test('assets: exclude only the user-confirmed marker; hidden status is independent; debts keep their sign',()=>{
   const s=C.empty();
   s.assets=[{code:'included',balance:100.10,currency:'RMB',reckonIn:false,status:'HIDE'},
-    {code:'excluded',balance:-300,currency:'RMB',reckonIn:true},
+    {code:'excluded-debt',balance:-300,currency:'RMB',reckonIn:true},
+    {code:'excluded-asset',balance:30,currency:'RMB',reckonIn:true},
     {code:'included-debt',balance:-10.05,currency:'RMB',reckonIn:false},
     {code:'foreign',balance:999,currency:'USD',reckonIn:false}];
-  assert.equal(C.totals(s).total,90.05);assert.equal(C.totals(s).included,2);
+  assert.equal(C.totals(s).total,-209.95);assert.equal(C.totals(s).included,1);
   assert.equal(C.totals(s).excluded,1);assert.equal(C.totals(s).foreign,1);
   assert.equal(C.totals(s).grossAssets,100.10);
-  assert.equal(C.totals(s).liabilities,10.05);
-  assert.equal(C.totals(s).excludedTotal,-300);
+  assert.equal(C.totals(s).liabilities,310.05);
+  assert.equal(C.totals(s).excludedTotal,30);
+  assert.equal(C.included(s.assets[1]),false);
 });
 test('migration removes previously synced zero balances but preserves manual zero accounts',()=>{
   const s=C.migrate({assets:[
@@ -35,12 +37,21 @@ test('migration removes previously synced zero balances but preserves manual zer
   ]});
   assert.deepEqual(s.assets.map(a=>a.code),['manual-zero','synced-nonzero']);
 });
+test('automatic sync is due after twelve hours and a failed attempt delays retries',()=>{
+  const now=Date.parse('2026-11-19T12:00:00Z');
+  const s=C.empty();s.lastSync='2026-11-19T00:00:00Z';
+  assert.equal(C.autoSyncDue(s,now),false);
+  assert.equal(C.autoSyncDue(s,now+1),true);
+  s.lastSyncAttempt='2026-11-19T11:00:00Z';
+  assert.equal(C.autoSyncDue(s,now+1),false);
+  assert.equal(C.autoSyncDue(s,now+11*60*60*1000+1),true);
+});
 test('goals: per-category scope, deadline, completion, overdue, no fabricated prediction',()=>{
   const s=C.demo();s.goals=[];s.history=[];
   const g={amount:100000,deadline:'2027-01-31',createdDate:'2027-01-01',baseline:80000,scope:'all'};
   const m=C.goalMetrics(s,g,'2027-01-16');
-  assert.equal(m.current,86000);assert.equal(m.remaining,14000);assert.equal(m.days,15);assert.equal(m.percent,86);
-  assert.equal(m.ahead,-4000);assert.equal(m.estimate,null);assert.equal(m.monthly,28408.33);
+  assert.equal(m.current,81000);assert.equal(m.remaining,19000);assert.equal(m.days,15);assert.equal(m.percent,81);
+  assert.equal(m.ahead,-9000);assert.equal(m.estimate,null);assert.equal(m.monthly,38554.17);
   assert.equal(C.goalMetrics(s,g,'2027-02-01').overdue,true);
   assert.equal(C.goalMetrics(s,{...g,amount:1000},'2027-01-16').complete,true);
   assert.equal(C.goalMetrics(s,{...g,scope:'stock'},'2027-01-16').current,32000);
@@ -55,7 +66,7 @@ test('allocation: percent is based on current assets; amount is fixed; percent m
 test('daily snapshots replace same day, preserve previous days, and require month boundary for monthly metric',()=>{
   const s=C.demo();s.history=[];
   C.recordSnapshot(s,'2027-01-01');s.assets[0].balance+=100;C.recordSnapshot(s,'2027-01-01');
-  assert.equal(s.history.length,1);assert.equal(s.history[0].total,86100);
+  assert.equal(s.history.length,1);assert.equal(s.history[0].total,81100);
   s.assets[0].balance+=200;C.recordSnapshot(s,'2027-01-02');
   assert.equal(s.history.length,2);assert.equal(C.monthChange(s,'2027-01-02'),200);
   assert.equal(C.monthChange(s,'2026-12-16'),null);
@@ -91,7 +102,7 @@ test('forecast chooses the oldest eligible snapshot even when history is unsorte
   const s=C.demo();
   s.history=[{date:'2027-01-11',total:80000},{date:'2027-01-01',total:70000}];
   const g={amount:100000,deadline:'2027-12-31',createdDate:'2027-01-01',baseline:0,scope:'all'};
-  assert.equal(C.goalMetrics(s,g,'2027-01-21').dailyRate,800);
+  assert.equal(C.goalMetrics(s,g,'2027-01-21').dailyRate,550);
 });
 test('page content options migrate independently and preserve explicit off choices',()=>{
   const s=C.migrate({pageOptions:{wealth:{summary:false,unknown:false},todos:{completed:false,dates:false}}});

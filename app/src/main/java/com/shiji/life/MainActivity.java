@@ -35,6 +35,9 @@ public class MainActivity extends Activity {
     private WebView web;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private AtomicFile stateFile;
+    private volatile String activeDownloadId;
+    private volatile String cancelledDownloadId;
+    private volatile HttpURLConnection activeDownloadConnection;
 
     @Override public void onCreate(Bundle bundle) {
         super.onCreate(bundle);
@@ -68,7 +71,7 @@ public class MainActivity extends Activity {
                     String path = Uri.decode(r.getUrl().getPath().substring("/assets/".length()));
                     if (path.contains("..") || path.contains("\\")) return blocked();
                     try {
-                        String mime = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : "text/html";
+                        String mime = path.endsWith(".js") ? "text/javascript" : path.endsWith(".css") ? "text/css" : path.endsWith(".png") ? "image/png" : "text/html";
                         return new WebResourceResponse(mime, "UTF-8", getAssets().open(path));
                     } catch (IOException e) { return blocked(); }
                 }
@@ -89,6 +92,19 @@ public class MainActivity extends Activity {
     public class Bridge {
         @JavascriptInterface public void call(String id, String action, String payload) {
             if (id == null || id.length() > 100 || payload == null || payload.length() > 8000000) return;
+            if ("cancelDownload".equals(action)) {
+                try {
+                    String downloadId = new JSONObject(payload).optString("downloadId");
+                    if (!downloadId.isEmpty() && downloadId.equals(activeDownloadId)) {
+                        cancelledDownloadId = downloadId;
+                        HttpURLConnection connection = activeDownloadConnection;
+                        if (connection != null) connection.disconnect();
+                    }
+                    sendResult(id, ok());
+                } catch (Exception e) { sendResult(id, error("取消下载失败")); }
+                return;
+            }
+            if ("downloadUpdate".equals(action)) activeDownloadId = id;
             executor.execute(() -> {
                 JSONObject result;
                 try {
@@ -98,7 +114,8 @@ public class MainActivity extends Activity {
                             JSONObject state = new JSONObject();
                             try (InputStream in = stateFile.openRead()) { state = new JSONObject(read(in, 8000000)); }
                             catch (FileNotFoundException e) { /* first launch: no saved workspace */ }
-                            result = ok().put("state", state).put("connected", !readToken().isEmpty());
+                            result = ok().put("state", state).put("connected", !readToken().isEmpty())
+                                .put("currentVersion", getPackageManager().getPackageInfo(getPackageName(), 0).versionName);
                             break;
                         case "save":
                             JSONObject saved = args.getJSONObject("state");
@@ -126,7 +143,17 @@ public class MainActivity extends Activity {
                             break;
                         case "sync": result = sync(); break;
                         case "checkUpdate": result = checkUpdate(); break;
-                        case "downloadUpdate": result = downloadUpdate(); break;
+                        case "downloadUpdate":
+                            try { result = downloadUpdate(id); }
+                            catch (Exception e) {
+                                if (id.equals(cancelledDownloadId)) result = error("下载已取消").put("cancelled", true);
+                                else throw e;
+                            } finally {
+                                if (id.equals(activeDownloadId)) activeDownloadId = null;
+                                if (id.equals(cancelledDownloadId)) cancelledDownloadId = null;
+                                activeDownloadConnection = null;
+                            }
+                            break;
                         case "logout":
                             getSharedPreferences("vault", MODE_PRIVATE).edit().clear().commit();
                             result = ok(); break;
@@ -136,10 +163,23 @@ public class MainActivity extends Activity {
                 catch (SocketTimeoutException e) { result = error("连接超时，请稍后重试；本地数据已保留"); }
                 catch (IOException e) { result = error("暂时无法连接小青账，请检查网络后重试"); }
                 catch (Exception e) { result = error("操作未完成，本地数据已保留；请重试或重新登录"); }
-                final String js = "window.onNativeResult(" + JSONObject.quote(id) + "," + result.toString() + ")";
-                runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) web.evaluateJavascript(js, null); });
+                sendResult(id, result);
             });
         }
+    }
+
+    private void sendResult(String id, JSONObject result) {
+        final String js = "window.onNativeResult(" + JSONObject.quote(id) + "," + result.toString() + ")";
+        runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) web.evaluateJavascript(js, null); });
+    }
+
+    private void checkDownloadCancelled(String id) throws UserError {
+        if (id.equals(cancelledDownloadId)) throw new UserError("下载已取消");
+    }
+
+    private void sendProgress(String id, long loaded, long total) {
+        final String js = "window.onNativeProgress(" + JSONObject.quote(id) + "," + loaded + "," + total + ")";
+        runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) web.evaluateJavascript(js, null); });
     }
 
     private JSONObject sync() throws Exception {
@@ -161,6 +201,7 @@ public class MainActivity extends Activity {
             if (a.getDouble("balance") == 0d) continue;
             JSONObject entry = new JSONObject().put("code",a.getString("code"))
                 .put("name",a.optString("name","未命名账户")).put("balance",a.get("balance"))
+                .put("bankName",a.optString("bankName",a.optString("bank",a.optString("institutionName",""))))
                 .put("currency",a.optString("currency", ""))
                 .put("reckonIn",a.optBoolean("reckonIn",false))
                 .put("liabilities",a.optBoolean("liabilities",false))
@@ -208,8 +249,10 @@ public class MainActivity extends Activity {
         finally { con.disconnect(); }
     }
 
-    private JSONObject downloadUpdate() throws Exception {
+    private JSONObject downloadUpdate(String id) throws Exception {
+        checkDownloadCancelled(id);
         JSONObject release = checkUpdate();
+        checkDownloadCancelled(id);
         if (!release.optBoolean("published") || release.getInt("latestCode") <= release.getInt("currentCode"))
             throw new UserError("当前已是最新版本");
         if (!getPackageManager().canRequestPackageInstalls()) {
@@ -229,32 +272,44 @@ public class MainActivity extends Activity {
             if (!match.find()) throw new UserError("安装包校验信息无效，已停止下载");
             expected = match.group(1);
         }
+        checkDownloadCancelled(id);
         File apk = new File(getCacheDir(), "morrow-update.apk");
         File part = new File(getCacheDir(), "morrow-update.apk.part");
         if (part.exists()) part.delete();
         try {
             MessageDigest hash = MessageDigest.getInstance("SHA-256");
             HttpURLConnection con = releaseConnection(release.getString("apkUrl"));
+            activeDownloadConnection = con;
             try {
+                checkDownloadCancelled(id);
                 if (con.getResponseCode() != 200) throw new UserError("安装包下载失败（" + con.getResponseCode() + "）");
                 if (!"https".equalsIgnoreCase(con.getURL().getProtocol())) throw new UserError("下载地址不安全");
-                long size = 0;
+                long size = 0, total = con.getContentLengthLong(), lastProgress = 0;
                 try (InputStream in = con.getInputStream(); OutputStream out = new FileOutputStream(part)) {
                     byte[] bytes = new byte[32768]; int count;
                     while ((count = in.read(bytes)) != -1) {
+                        checkDownloadCancelled(id);
                         size += count;
                         if (size > 200L * 1024 * 1024) throw new UserError("安装包超过大小限制");
                         hash.update(bytes, 0, count); out.write(bytes, 0, count);
+                        long now = System.currentTimeMillis();
+                        if (now - lastProgress >= 150 || (total > 0 && size >= total)) {
+                            sendProgress(id, size, total); lastProgress = now;
+                        }
                     }
                 }
+                checkDownloadCancelled(id);
+                sendProgress(id, size, total);
                 if (size == 0) throw new UserError("安装包为空");
                 StringBuilder actual = new StringBuilder();
                 for (byte b : hash.digest()) actual.append(String.format(java.util.Locale.ROOT, "%02x", b & 255));
                 if (!actual.toString().equalsIgnoreCase(expected)) throw new UserError("安装包校验失败，请重试");
+                checkDownloadCancelled(id);
                 if (apk.exists() && !apk.delete()) throw new IOException("Could not replace cached APK");
                 if (!part.renameTo(apk)) throw new IOException("Could not save downloaded APK");
-            } finally { con.disconnect(); }
+            } finally { activeDownloadConnection = null; con.disconnect(); }
         } finally { if (part.exists()) part.delete(); }
+        checkDownloadCancelled(id);
         Uri uri = Uri.parse("content://" + getPackageName() + ".updates/update.apk");
         Intent install = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);

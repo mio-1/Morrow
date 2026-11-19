@@ -3,6 +3,7 @@
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
   let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, dragState=null, swipeState=null, longPressState=null, suppressSwipeClick=false;
+  let updateState={status:'idle',current:'0.1.6',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -19,6 +20,19 @@
     clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18m0 4v5l4 2'
   };
   function icon(name) { return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name] || paths.grid}"/></svg>`; }
+  const BANKS = [
+    ['icbc','工商银行',/工商银行|工行|ICBC/i],['ccb','建设银行',/建设银行|建行|CCB/i],
+    ['abc','农业银行',/农业银行|农行|ABC/i],['boc','中国银行',/中国银行|中行|BOC/i],
+    ['cmb','招商银行',/招商银行|招行|CMB(?!C)/i],['bcm','交通银行',/交通银行|交行|BOCOM/i],
+    ['psbc','邮储银行',/邮政储蓄|邮储银行|邮储|PSBC/i],['citic','中信银行',/中信银行|CITIC/i],
+    ['ceb','光大银行',/光大银行|CEB/i],['cmbc','民生银行',/民生银行|CMBC/i],
+    ['cib','兴业银行',/兴业银行|CIB/i],['spdb','浦发银行',/浦发银行|上海浦东发展银行|SPDB/i],
+    ['pab','平安银行',/平安银行/i],['cgb','广发银行',/广发银行|广发|CGB/i],
+    ['hxb','华夏银行',/华夏银行/i],['czb','浙商银行',/浙商银行/i],
+    ['bob','北京银行',/北京银行/i],['bos','上海银行',/上海银行/i]
+  ];
+  function bankFor(a) { const name=[a.bankName,a.name].filter(Boolean).join(' ');return BANKS.find(([, ,pattern])=>pattern.test(name)); }
+  function accountBadge(a) { const bank=bankFor(a);return bank?`<img src="bank-logos/${bank[0]}.png" alt="" loading="lazy">`:icon('wallet'); }
   function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function money(n, decimals = 0) { return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
   function yuan(n) { return '¥' + money(n); }
@@ -28,7 +42,7 @@
   function dateField(label, value, required=false) {
     return `<div class="form-field"><span>${label}</span><input type="hidden" name="deadline" value="${esc(value||'')}"><button type="button" class="date-field-button" data-action="pick-date" data-required="${required}" aria-label="选择${label}"><span>${value?esc(value):'选择日期'}</span>${icon('calendar')}</button></div>`;
   }
-  function call(action, args = {}) {
+  function call(action, args = {}, options = {}) {
     if (!native) {
       if (action === 'load') return Promise.resolve({ ok:true, state:JSON.parse(localStorage.getItem('shiji-state') || '{}'), connected:false });
       if (action === 'save') { localStorage.setItem('shiji-state', JSON.stringify(args.state)); return Promise.resolve({ ok:true }); }
@@ -36,11 +50,13 @@
     }
     return new Promise((resolve, reject) => {
       const id = String(++nextId), timer = setTimeout(() => { pending.delete(id); reject(new Error('操作超时，请稍后重试')); }, action==='downloadUpdate'?300000:55000);
-      pending.set(id, { resolve, timer });
+      pending.set(id, { resolve, timer, progress:options.progress });
+      if(options.onStart)options.onStart(id);
       window.NativeHub.call(id, action, JSON.stringify(args));
     });
   }
   window.onNativeResult = (id, result) => { const p = pending.get(id); if (p) { clearTimeout(p.timer); pending.delete(id); p.resolve(result); } };
+  window.onNativeProgress = (id, loaded, total) => { const p=pending.get(id);if(p?.progress)p.progress(loaded,total); };
   async function persist() {
     try { const result = await call('save', {state}); if (!result.ok) toast(result.error || '保存失败，请重试'); }
     catch (e) { toast('本地保存未完成，请重试'); }
@@ -111,20 +127,18 @@
     const positiveTotal = segments.reduce((n,s) => n+s.r.current,0);
     const gradient = positiveTotal ? segments.map(({r,from}) => `${r.color} ${from/positiveTotal*360}deg ${(from+r.current)/positiveTotal*360}deg`).join(',') : '#e8ede5 0deg 360deg';
     const unclassified = state.assets.filter(a => C.included(a) && !state.categoryMap[a.code]).length;
-    return `<section class="section"><div class="section-head"><h2>资产配置</h2><button class="subtle" data-action="assets-allocation">查看详情${icon('arrow')}</button></div><div class="card"><div class="allocation-top"><div class="donut" style="--segments:${gradient}"><div class="donut-hole"><strong>${t.total > 0 ? '100%' : '—'}</strong><span>资产配置</span></div></div><div class="allocation-legend">${shown.map(r => `<div class="legend-row"><span class="legend-name"><i class="dot" style="background:${r.color}"></i>${esc(r.name)}</span><b>${money(r.share,1)}%</b></div>`).join('')}${hiddenTotal?`<div class="legend-row muted"><span class="legend-name"><i class="dot" style="background:#dce3ee"></i>未展示</span><b>${money(hiddenTotal/Math.max(1,t.total)*100,1)}%</b></div>`:''}</div></div><p class="allocation-note">${unclassified ? `${unclassified} 个计入账户尚在“其他”类别，可在账户页归类。` : hasAssets() ? '为股票、债券、现金设置自己的配置目标。' : '连接资产后查看各类别占比。'}${t.total <= 0 ? '' : ' 圆环展示正余额构成。'}</p></div></section>`;
+    return `<section class="section"><div class="section-head"><h2>资产配置</h2><button class="subtle" data-action="assets-allocation">查看详情${icon('arrow')}</button></div><div class="card"><div class="allocation-top"><div class="donut" style="--segments:${gradient}"><div class="donut-hole"><strong>${t.grossAssets > 0 ? '100%' : '—'}</strong><span>资产配置</span></div></div><div class="allocation-legend">${shown.map(r => `<div class="legend-row"><span class="legend-name"><i class="dot" style="background:${r.color}"></i>${esc(r.name)}</span><b>${money(r.share,1)}%</b></div>`).join('')}${hiddenTotal?`<div class="legend-row muted"><span class="legend-name"><i class="dot" style="background:#dce3ee"></i>未展示</span><b>${money(hiddenTotal/Math.max(1,t.grossAssets)*100,1)}%</b></div>`:''}</div></div><p class="allocation-note">${unclassified ? `${unclassified} 个计入账户尚在“其他”类别，可在账户页归类。` : hasAssets() ? '为股票、债券、现金设置自己的配置目标。' : '连接资产后查看各类别占比。'}${t.grossAssets <= 0 ? '' : ' 圆环展示正余额构成。'}</p></div></section>`;
   }
   function goalsView() {
     const filtered=goalFilter==='all'?state.goals:state.goals.filter(g=>goalStatus(g)===goalFilter);
     const tabs=[['all','全部'],['active','进行中'],['completed','已达成'],['missed','未达成']];
     return title('','存钱目标','为每个目标设定自己的时间和金额。',`<div class="page-actions"><button class="icon-btn" aria-label="新建目标" data-action="add-goal">${icon('plus')}</button><button class="icon-btn" aria-label="目标设置" data-action="open-goal-settings">${icon('settings')}</button></div>`,true) +
       `<div class="goal-filter-tabs" role="tablist" aria-label="目标状态">${tabs.map(([id,label])=>`<button role="tab" aria-selected="${goalFilter===id}" class="${goalFilter===id?'selected':''}" data-action="goal-filter" data-filter="${id}">${label}</button>`).join('')}</div>` +
-      (filtered.length ? filtered.map(g=>`<div class="goal-list-item ${g.visible===false?'is-hidden':''}" data-sort-type="goal" data-sort-id="${esc(g.id)}">${goalCard(g,true)}<div class="goal-list-tools">${dragHandle('goal')}<span>资产页显示</span><button class="switch ${g.visible!==false?'on':''}" role="switch" aria-checked="${g.visible!==false}" aria-label="在资产页显示${esc(g.name)}" data-action="toggle-goal-visible" data-id="${esc(g.id)}"><i></i></button><button class="list-delete" aria-label="删除${esc(g.name)}" data-action="delete-goal-confirm" data-id="${esc(g.id)}">${icon('trash')}</button></div></div>`).join('') : state.goals.length ? emptyCard('这里还没有目标','','','') : emptyCard('未来的你，会感谢今天','设置目标金额和截止日期，进度会随资产同步更新。','add-goal','创建长期目标')) +
+      (filtered.length ? filtered.map(g=>`<div class="goal-list-item ${g.visible===false?'is-hidden':''}" data-sort-type="goal" data-sort-id="${esc(g.id)}">${goalCard(g,true)}<div class="goal-list-tools"><span>资产页显示</span><button class="switch ${g.visible!==false?'on':''}" role="switch" aria-checked="${g.visible!==false}" aria-label="在资产页显示${esc(g.name)}" data-action="toggle-goal-visible" data-id="${esc(g.id)}"><i></i></button><button class="list-delete" aria-label="删除${esc(g.name)}" data-action="delete-goal-confirm" data-id="${esc(g.id)}">${icon('trash')}</button></div></div>`).join('') : state.goals.length ? emptyCard('这里还没有目标','','','') : emptyCard('未来的你，会感谢今天','设置目标金额和截止日期，进度会随资产同步更新。','add-goal','创建长期目标')) +
       '<p class="footnote">目标按所选资产口径分别计算；共享同一份资产的目标属于阶段里程碑，不代表资金已独立分配，不能把它们的已攒金额相加。</p>';
   }
   function wealthView() {
-    const t=C.totals(state);
     return title('','账户列表','','',true) +
-      (pageOption('wealth','summary') ? `<div class="card wealth-summary"><span>净资产</span><strong>${hasAssets()?yuan(t.total):'—'}</strong><small>${t.included} 个计入账户 · ${t.excluded} 个不计入账户</small></div>` : '') +
       (pageOption('wealth','accounts') ? accountsView() : hint('账户列表已关闭。可在资产页面设置中开启。'));
   }
   function allocationPage() {
@@ -137,15 +151,14 @@
         const gapText=!hasAssets()||r.target<=0?'':r.gap>=0?`还差 ${yuan(r.gap)}`:`高于目标 ${yuan(-r.gap)}`;
         const progressText=r.target<=0?'':r.mode==='percent'?`${r.deviation>0?'+':''}${money(r.deviation,1)} 个百分点`:`${money(r.current/r.target*100,1)}%`;
         const accounts=state.assets.filter(a=>C.category(state,a)===r.id);
-        const accountMarkup=accounts.slice(0,2).map(a=>`<span class="allocation-account-chip" title="${esc(a.name)}"><span class="allocation-account-logo">${icon(a.liabilities?'wallet':'pie')}</span><span class="allocation-account-name">${esc(a.name)}</span></span>`).join('')+(accounts.length>2?`<span class="allocation-account-more" aria-label="另有${accounts.length-2}个账户">…</span>`:'');
+        const accountMarkup=accounts.slice(0,2).map(a=>`<span class="allocation-account-chip" title="${esc(a.name)}"><span class="allocation-account-logo">${accountBadge(a)}</span><span class="allocation-account-name">${esc(a.name)}</span></span>`).join('')+(accounts.length>2?`<span class="allocation-account-more" aria-label="另有${accounts.length-2}个账户">…</span>`:'');
         return `<article class="allocation-item" data-sort-type="category" data-sort-id="${esc(r.id)}">${r.id==='other'?'':`<button class="allocation-swipe-delete" aria-label="删除${esc(r.name)}" data-action="category-delete-confirm" data-id="${esc(r.id)}">${icon('trash')}<span>删除</span></button>`}<div class="card allocation-row"><div class="allocation-row-top"><button class="allocation-row-title" data-action="category-edit" data-id="${esc(r.id)}" aria-label="编辑${esc(r.name)}"><i class="dot" style="background:${r.color}"></i><h3>${esc(r.name)}</h3>${icon('edit')}</button><button class="switch ${r.visible!==false?'on':''}" role="switch" aria-checked="${r.visible!==false}" aria-label="在资产页显示${esc(r.name)}" data-action="toggle-category-visible" data-id="${esc(r.id)}"><i></i></button></div><div class="allocation-value-row"><div class="allocation-amount"><small>当前金额${pageOption('allocation','share')?` · ${money(r.share,1)}%`:''}</small><strong>${yuan(r.current)}</strong></div><button class="allocation-amount allocation-target-edit" data-action="allocation-edit" data-id="${esc(r.id)}"><small>${targetLabel}${icon('arrow')}</small><strong>${r.target>0?yuan(r.desired):'设置目标'}</strong></button></div>${pageOption('allocation','progress')&&r.target>0?`<div class="progress"><i style="background:${r.color};width:${r.progress}%"></i></div>`:''}${pageOption('allocation','gap')&&r.target>0?`<div class="allocation-bottom"><span>${gapText}</span><b>${progressText}</b></div>`:''}<div class="allocation-accounts">${accountMarkup}<button class="allocation-account-add" data-action="category-accounts" data-id="${esc(r.id)}" aria-label="关联${esc(r.name)}账户">＋</button></div></div></article>`;
       }).join('');
   }
   function accountsView() {
     const t = C.totals(state);
-    return `<div class="section-head"><h2>${state.assets.length} 个账户</h2><div class="section-actions"><button class="mini-button" data-action="manual-asset">手动添加</button><button class="mini-button ${busy ? 'busy' : ''}" data-action="sync" ${busy?'disabled':''}>${busy?'同步中':'同步'}</button></div></div>` +
-      (hasAssets() ? `<div class="card">${state.assets.map(a => `<div class="account ${a.reckonIn ? 'excluded' : ''}"><div class="account-badge">${icon(a.liabilities?'wallet':'pie')}</div><div class="account-main"><h3>${esc(a.name)}</h3><small>${a.reckonIn ? '不计入 · 已排除' : a.currency !== 'RMB' ? '外币暂未折算' : '计入目标'} · ${a.source === 'manual' ? '手动账户' : '小青账'}${a.source === 'manual' ? ` <button class="text-btn" data-action="manual-asset" data-id="${esc(a.code)}">编辑</button>` : ''}</small></div><div class="account-value"><strong>${esc(a.currency === 'RMB' ? '¥' : a.currency+' ')}${money(a.balance,2)}</strong><select aria-label="${esc(a.name)}的资产类别" data-category-code="${esc(a.code)}">${C.categories(state).map(c => `<option value="${c.id}" ${C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div></div>`).join('')}</div>` : emptyCard('先把资产连接进来','登录小青账后读取资产，也可以先手动添加账户。','connect','连接小青账','wallet')) +
-      `<p class="footnote">计入 ${t.included} 个账户，排除 ${t.excluded} 个“不计入”账户。同步账户沿用小青账的标记；隐藏账户不会自动排除。负余额按原值参与计算，不会重复扣除。人民币以外的账户暂不折算。</p>`;
+    return `<div class="section-head"><h2>${state.assets.length} 个账户</h2><div class="section-actions"><button class="mini-button ${busy ? 'busy' : ''}" data-action="sync" ${busy?'disabled':''}>${busy?'同步中':'同步'}</button></div></div>` +
+      (hasAssets() ? `<div class="card">${state.assets.map(a => { const bank=bankFor(a), amount=C.cents(a.balance);return `<div class="account ${a.reckonIn&&amount>0 ? 'excluded' : ''}"><div class="account-badge">${accountBadge(a)}</div><div class="account-main"><h3>${esc(a.name)}</h3><small>${bank?`${esc(bank[1])} · `:''}${a.currency !== 'RMB' ? '外币暂未折算' : amount<0?'负债':a.reckonIn?'未计入资产':'计入资产'}</small></div><div class="account-value"><strong>${esc(a.currency === 'RMB' ? '¥' : a.currency+' ')}${money(a.balance,2)}</strong><select aria-label="${esc(a.name)}的资产类别" data-category-code="${esc(a.code)}">${C.categories(state).map(c => `<option value="${c.id}" ${C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></div></div>`;}).join('')}</div>` : emptyCard('先把资产连接进来','登录小青账后读取资产。','connect','连接小青账','wallet'));
   }
   function taskRow(t, inLibrary=false) {
     const urgency=!t.done?C.taskUrgency(t):null, priority={low:'低',medium:'中',high:'高'}[t.priority]||'中';
@@ -176,10 +189,11 @@
       (!undated.length?emptyCard('没有未安排的待办','','add-task','添加待办','archive'):'');
   }
   function settingsView() {
+    const u=updateState, label=u.status==='checking'?'正在检查更新…':u.status==='available'?`发现新版本 ${u.latest} · 点击下载`:u.status==='current'?'已是最新版本':u.status==='unpublished'?'暂无已发布版本':u.status==='error'?'检查失败 · 点击重试':'检查更新';
     return title('','设置','管理每个页面显示的内容。') +
       `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="page-settings" data-id="wealth"><span class="row-glyph">${icon('wallet')}</span><div><h3>资产页面</h3><p>资产概览、存钱目标、资产配置</p></div>${icon('arrow')}</button><button class="settings-row" data-action="page-settings" data-id="todos"><span class="row-glyph">${icon('list')}</span><div><h3>待办页面</h3><p>已完成事项</p></div>${icon('arrow')}</button></div></section>` +
       `<section class="settings-section"><h2>连接与数据</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="connections"><span class="row-glyph">${icon('sync')}</span><div><h3>连接管理</h3><p>${connected?'已连接小青账 · 管理外部服务':'管理小青账与其他外部服务'}</p></div>${icon('arrow')}</button></div></section>` +
-      `<section class="settings-section"><h2>应用</h2><div class="settings-group"><button class="settings-row" data-action="check-update"><span class="row-glyph">${icon('sync')}</span><div><h3>检查更新</h3></div>${icon('arrow')}</button></div></section>`;
+      `<section class="settings-section"><h2>应用</h2><div class="settings-group update-group"><button class="update-button ${u.status==='available'?'has-update':''}" data-action="update-action" ${u.status==='checking'||u.status==='downloading'?'disabled':''}><span class="update-button-icon">${icon('sync')}</span><span class="update-button-copy"><strong>${esc(label)}</strong><small>当前版本 v${esc(u.current)}</small></span>${icon('arrow')}</button></div></section>`;
   }
   function versionParts(value) {
     const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(value || ''));
@@ -191,19 +205,42 @@
     return a.some((part, i) => part > b[i] && a.slice(0, i).every((value, j) => value === b[j]));
   }
   async function checkUpdate() {
-    openSheet('检查更新','<div class="update-status">正在检查…</div>');
-    const status = overlay.querySelector('.update-status');
+    updateState.status='checking';render();
     try {
       const result = await call('checkUpdate');
-      if (!status.isConnected) return;
-      if (!result.ok) { status.textContent = result.error || '检查更新失败'; return; }
-      const current = esc(result.currentVersion || '');
-      if (!result.published) { status.innerHTML = `<strong>暂无已发布版本</strong><span>当前版本 ${current}</span>`; return; }
-      const latest = esc(result.latestVersion);
+      if (!result.ok) { updateState.status='error';toast(result.error||'检查更新失败');render();return; }
+      updateState.current=result.currentVersion||updateState.current;
+      if (!result.published) { updateState.status='unpublished';render();return; }
+      updateState.latest=result.latestVersion;
       const newer = Number.isInteger(result.latestCode) && Number.isInteger(result.currentCode)
         ? result.latestCode > result.currentCode : newerVersion(result.latestVersion, result.currentVersion);
-      status.innerHTML = `<strong>${newer ? '发现新版本' : '已是最新版本'}</strong><span>当前 ${current} · 最新 ${latest}</span>${newer ? '<button class="primary full" data-action="download-update">下载安装</button>' : ''}`;
-    } catch (error) { if (status.isConnected) status.textContent = error.message || '检查更新失败'; }
+      updateState.status=newer?'available':'current';render();
+    } catch (error) { updateState.status='error';toast(error.message||'检查更新失败');render(); }
+  }
+  function updateProgress(loaded,total) {
+    const status=overlay.querySelector('.update-progress-label'),bar=overlay.querySelector('.update-progress-bar');
+    if(!status||!bar)return;
+    const percent=total>0?Math.max(0,Math.min(100,Math.round(loaded/total*100))):null;
+    status.textContent=percent===null?`已下载 ${(loaded/1048576).toFixed(1)} MB`:`${percent}%`;
+    bar.style.width=percent===null?'25%':`${percent}%`;
+  }
+  async function downloadUpdate() {
+    updateState.status='downloading';render();
+    openSheet('下载更新',`<div class="update-download"><div class="update-progress-label">正在准备下载…</div><div class="update-progress-track"><div class="update-progress-bar"></div></div><button class="secondary full" data-action="cancel-update">取消下载</button></div>`,'update-dialog');
+    const session={id:null,cancelled:false};downloadSession=session;
+    try {
+      const result=await call('downloadUpdate',{}, {onStart:id=>{session.id=id;},progress:(loaded,total)=>{if(!session.cancelled)updateProgress(loaded,total);}});
+      if(session.cancelled)return;
+      if(!result.ok){toast(result.error||'下载失败，请重试');updateState.status='available';closeSheet();}
+      else {updateState.status='available';closeSheet();}
+    } catch(e) {if(!session.cancelled){toast(e.message||'下载失败，请重试');updateState.status='available';closeSheet();}}
+    finally {if(downloadSession===session)downloadSession=null;render();}
+  }
+  function cancelUpdate() {
+    if(!downloadSession)return;
+    downloadSession.cancelled=true;
+    if(downloadSession.id)call('cancelDownload',{downloadId:downloadSession.id}).catch(()=>{});
+    downloadSession=null;updateState.status='available';closeSheet();render();
   }
   function connectionsView() {
     return title('','连接管理','集中管理与外部服务的数据连接。','',true) +
@@ -278,7 +315,7 @@
   async function sync() {
     if (state.demo) {toast('示例模式不会同步真实账户，请先退出示例');return;}
     if (!connected) {navigate('xiaoqing');return;}
-    if(busy)return;busy=true;render();
+    if(busy)return;busy=true;state.lastSyncAttempt=new Date().toISOString();save();render();
     try { const result=await call('sync');applySync(result); }
     catch(e){toast(e.message);}finally{busy=false;render();}
   }
@@ -286,15 +323,11 @@
     if(!result.ok){if(result.expired)connected=false;if(result.connected)connected=true;throw new Error(result.error||'同步未完成');}
     const accounts=(result.accounts||[]).filter(a=>Number(a.balance)!==0);
     state.assets=state.assets.filter(a=>a.source==='manual').concat(accounts);
-    state.lastSync=new Date(result.syncedAt).toISOString();connected=true;
-    initializeBaselines();C.recordSnapshot(state);save();toast(`同步完成，已读取 ${accounts.length} 个资产账户`);
+    state.lastSync=new Date(result.syncedAt).toISOString();state.lastSyncAttempt=state.lastSync;connected=true;
+    initializeBaselines();C.recordSnapshot(state);save();
   }
   function initializeBaselines(){for(const g of state.goals)if(g.baselinePending){g.baseline=C.goalValue(state,g);g.createdDate=C.today();g.baselinePending=false;}}
   function rebaseCategoryGoals(){for(const g of state.goals)if(g.scope&&g.scope!=='all'){g.baseline=C.goalValue(state,g);g.createdDate=C.today();g.baselinePending=!hasAssets();}}
-  function manualAssetForm(id) {
-    const a=state.assets.find(a=>a.code===id&&a.source==='manual');
-    openSheet(a?'编辑手动账户':'添加手动账户',`<form data-form="manual" data-id="${esc(a?.code||'')}">${hint('手动账户独立于小青账同步。避免把已同步账户再次手动添加，否则会重复计算。')}<label class="form-field"><span>账户名称</span><input name="name" maxlength="40" value="${esc(a?.name||'')}" required></label><label class="form-field"><span>当前余额 · 人民币</span><input name="balance" type="number" inputmode="decimal" step="0.01" max="1000000000000" min="-1000000000000" value="${a?.balance??''}" required><small>负债填写负数，余额可随时手动更新。</small></label><label class="form-field"><span>资产类别</span><select name="category">${C.categories(state).map(c=>`<option value="${c.id}" ${a&&C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select></label><label class="checkbox-label"><input type="checkbox" name="exclude" ${a?.reckonIn?'checked':''}>不计入目标</label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存账户</button>${a?`<button type="button" class="text-btn danger full" data-action="delete-manual-confirm" data-id="${esc(a.code)}">删除手动账户</button>`:''}</form>`);
-  }
   function categoryForm(id) {
     const c=C.categories(state).find(c=>c.id===id);
     const accounts=categoryAccountFields(c);
@@ -338,13 +371,13 @@
   }
   function goBack() {
     if(datePicker){closeDatePicker();return true;}
-    if(overlay.innerHTML){closeSheet();return true;}
+    if(overlay.innerHTML){if(downloadSession)cancelUpdate();else closeSheet();return true;}
     if(navHistory.length){page=navHistory.pop();render();window.scrollTo(0,0);return true;}
     if(page!==navRoot){page=navRoot;render();return true;}
     return false;
   }
   const handlers = {
-    nav:el=>navigate(el.dataset.page,el.classList.contains('nav-item')), back:goBack, close:closeSheet, connect:()=>navigate('xiaoqing'),
+    nav:el=>navigate(el.dataset.page,el.classList.contains('nav-item')), back:goBack, close:()=>downloadSession?cancelUpdate():closeSheet(), connect:()=>navigate('xiaoqing'),
     'pick-date':openDatePicker,
     'close-date-picker':closeDatePicker,
     'show-years':()=>{datePicker.mode='years';renderDatePicker();},
@@ -352,14 +385,13 @@
     'date-month':el=>{const d=new Date(datePicker.year,datePicker.month-1+Number(el.dataset.step),1);datePicker.year=d.getFullYear();datePicker.month=d.getMonth()+1;renderDatePicker();},
     'select-day':el=>{const p=datePicker,value=`${p.year}-${String(p.month).padStart(2,'0')}-${String(el.dataset.day).padStart(2,'0')}`;p.input.value=value;p.button.querySelector('span').textContent=value;closeDatePicker();},
     'clear-date':()=>{datePicker.input.value='';datePicker.button.querySelector('span').textContent='选择日期';closeDatePicker();},
-    'check-update':checkUpdate,
-    'download-update':async el=>{el.disabled=true;el.textContent='正在下载并校验…';try{const result=await call('downloadUpdate');if(!result.ok)toast(result.error||'下载失败，请重试');else closeSheet();}catch(e){toast(e.message||'下载失败，请重试');}finally{if(el.isConnected){el.disabled=false;el.textContent='下载安装';}}},
+    'update-action':()=>updateState.status==='available'?downloadUpdate():checkUpdate(),
+    'cancel-update':cancelUpdate,
     'open-modules':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'open-goal-settings':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'open-all-goals':()=>navigate('goals'), 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
     'goal-filter':el=>{goalFilter=el.dataset.filter;render();},
     'toggle-goal-visible':el=>{const g=state.goals.find(x=>x.id===el.dataset.id);if(!g)return;g.visible=g.visible===false;save();render();},
     'goal-detail':el=>goalDetail(el.dataset.id), 'assets-allocation':()=>navigate('allocation'),
     'allocation-edit':el=>allocationForm(el.dataset.id), login:loginSheet,sync,
-    'manual-asset':el=>manualAssetForm(el.dataset.id),
     'category-edit':el=>categoryForm(el.dataset.id), 'category-accounts':el=>categoryAccountsForm(el.dataset.id),
     'toggle-category-visible':el=>{const c=state.categories.find(x=>x.id===el.dataset.id);if(!c)return;c.visible=c.visible===false;save();render();},
     'allocation-delete-confirm':el=>confirm('删除类别目标？','只清除这个类别的目标，不影响账户或其他类别。','allocation-delete',el.dataset.id),
@@ -368,8 +400,6 @@
     'category-delete':el=>deleteCategory(el.dataset.id),
     'delete-goal-confirm':el=>confirm('删除目标？','只删除目标设置，不会影响资产或小青账数据。','delete-goal',el.dataset.id),
     'delete-goal':el=>{state.goals=state.goals.filter(g=>g.id!==el.dataset.id);save();closeSheet();render();toast('目标已删除');},
-    'delete-manual-confirm':el=>confirm('删除手动账户？','该账户的余额将不再计入目标；不会修改小青账。','delete-manual',el.dataset.id),
-    'delete-manual':el=>{state.assets=state.assets.filter(a=>a.code!==el.dataset.id);delete state.categoryMap[el.dataset.id];C.recordSnapshot(state);save();closeSheet();render();},
     'toggle-page-option':el=>{const moduleId=el.dataset.module, optionId=el.dataset.option;if(!C.PAGE_OPTIONS[moduleId]?.some(o=>o.id===optionId))return;state.pageOptions[moduleId][optionId]=!pageOption(moduleId,optionId);save();render();},
     'page-settings':el=>{moduleSettingsId=el.dataset.id;navigate('module-settings');},
     'open-accounts':()=>navigate('wealth'),
@@ -379,9 +409,9 @@
     'delete-task-now':el=>{state.tasks=state.tasks.filter(t=>t.id!==el.dataset.id);save();closeSheet();render();},
     rename:()=>openSheet('给这个空间起个名字',`<form data-form="rename"><label class="form-field"><span>应用内名称</span><input name="name" maxlength="12" value="${esc(state.name)}" required><small>修改界面里的名称，不影响桌面图标名称。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存名称</button></form>`),
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
-    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
+    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
-  document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open');if(open&&e.target.closest('.allocation-row')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('backdrop')){closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
+  document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open');if(open&&e.target.closest('.allocation-row')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
   document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;dragState={type:row.dataset.sortType,id:row.dataset.sortId,target:null,startX:e.clientX,startY:e.clientY,pointerId:e.pointerId};handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
   document.addEventListener('pointermove',e=>{if(!dragState||e.pointerId!==dragState.pointerId)return;if(Math.hypot(e.clientX-dragState.startX,e.clientY-dragState.startY)<8)return;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));const row=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-sort-id]');if(row&&row.dataset.sortType===dragState.type&&row.dataset.sortId!==dragState.id){dragState.target=row.dataset.sortId;row.classList.add('sort-over');}else dragState.target=null;});
   document.addEventListener('pointerup',e=>{if(!dragState||e.pointerId!==dragState.pointerId)return;const {type,id,target}=dragState;dragState=null;document.querySelectorAll('.sort-over').forEach(el=>el.classList.remove('sort-over'));if(target)reorderItem(type,id,target);});
@@ -390,10 +420,10 @@
   document.addEventListener('pointermove',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy))return;s.active=true;s.item.classList.add('is-swiping');document.querySelectorAll('.allocation-item.is-open').forEach(item=>{if(item!==s.item)item.classList.remove('is-open');});}s.item.querySelector('.allocation-row').style.transform=`translateX(${Math.max(-76,Math.min(0,s.offset+dx))}px)`;e.preventDefault();});
   document.addEventListener('pointerup',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;swipeState=null;if(!s.active)return;const dx=e.clientX-s.startX;s.item.querySelector('.allocation-row').style.transform='';s.item.classList.remove('is-swiping');s.item.classList.toggle('is-open',s.offset+dx<-38);suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);});
   document.addEventListener('pointercancel',()=>{if(!swipeState)return;swipeState.item.querySelector('.allocation-row').style.transform='';swipeState.item.classList.remove('is-swiping');swipeState=null;});
-  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title');if(!title)return;const item=title.closest('.allocation-item');if(!item)return;const hold={item,title,id:item.dataset.sortId,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,active:false,target:null,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;hold.active=true;swipeState=null;item.classList.remove('is-open','is-swiping');item.querySelector('.allocation-row').style.transform='';item.classList.add('is-dragging');try{title.setPointerCapture(e.pointerId);}catch{}},380);});
-  document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.hypot(dx,dy)>8){clearTimeout(s.timer);longPressState=null;}return;}s.item.style.transform=`translateY(${dy}px)`;document.querySelectorAll('.allocation-item.sort-over').forEach(item=>item.classList.remove('sort-over'));const target=[...document.querySelectorAll('.allocation-item')].find(item=>item!==s.item&&e.clientY>=item.getBoundingClientRect().top&&e.clientY<=item.getBoundingClientRect().bottom);s.target=target?.dataset.sortId||null;target?.classList.add('sort-over');e.preventDefault();});
-  document.addEventListener('pointerup',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;clearTimeout(s.timer);longPressState=null;if(!s.active)return;s.item.style.transform='';s.item.classList.remove('is-dragging');document.querySelectorAll('.allocation-item.sort-over').forEach(item=>item.classList.remove('sort-over'));suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);if(s.target)reorderItem('category',s.id,s.target);});
-  document.addEventListener('pointercancel',()=>{const s=longPressState;if(!s)return;clearTimeout(s.timer);s.item.style.transform='';s.item.classList.remove('is-dragging');document.querySelectorAll('.allocation-item.sort-over').forEach(item=>item.classList.remove('sort-over'));longPressState=null;});
+  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item');if(!item)return;const type=item.dataset.sortType,selector=type==='goal'?'.goal-list-item':'.allocation-item';const hold={item,title,type,selector,id:item.dataset.sortId,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,active:false,target:null,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;hold.active=true;swipeState=null;if(type==='category'){item.classList.remove('is-open','is-swiping');item.querySelector('.allocation-row').style.transform='';}item.classList.add('is-dragging');try{title.setPointerCapture(e.pointerId);}catch{}},380);});
+  document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.hypot(dx,dy)>8){clearTimeout(s.timer);longPressState=null;}return;}s.item.style.transform=`translateY(${dy}px)`;document.querySelectorAll(`${s.selector}.sort-over`).forEach(item=>item.classList.remove('sort-over'));const target=[...document.querySelectorAll(s.selector)].find(item=>item!==s.item&&e.clientY>=item.getBoundingClientRect().top&&e.clientY<=item.getBoundingClientRect().bottom);s.target=target?.dataset.sortId||null;target?.classList.add('sort-over');e.preventDefault();});
+  document.addEventListener('pointerup',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;clearTimeout(s.timer);longPressState=null;if(!s.active)return;s.item.style.transform='';s.item.classList.remove('is-dragging');document.querySelectorAll(`${s.selector}.sort-over`).forEach(item=>item.classList.remove('sort-over'));suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);if(s.target)reorderItem(s.type,s.id,s.target);});
+  document.addEventListener('pointercancel',()=>{const s=longPressState;if(!s)return;clearTimeout(s.timer);s.item.style.transform='';s.item.classList.remove('is-dragging');document.querySelectorAll(`${s.selector}.sort-over`).forEach(item=>item.classList.remove('sort-over'));longPressState=null;});
   document.addEventListener('change',e=>{
     if(e.target.dataset.categoryCode){state.categoryMap[e.target.dataset.categoryCode]=e.target.value;rebaseCategoryGoals();C.recordSnapshot(state);save();render();toast('账户分类已保存');}
     if(e.target.id==='allocation-mode'){overlay.querySelector('.unit').textContent=e.target.value==='percent'?'%':'元';overlay.querySelector('[name="target"]').max=e.target.value==='percent'?'100':'';}
@@ -409,10 +439,6 @@
       const id=form.dataset.id,target=Number(data.target);
       if(!state.categories.some(c=>c.id===id)||!['amount','percent'].includes(data.mode)||data.target===''||!Number.isFinite(target)||target<0||data.mode==='percent'&&target>100){formError('请输入有效目标值');return;}
       state.allocationGoals[id]={mode:data.mode,target};state.allocationTargets[id]=target;save();closeSheet();render();toast('类别目标已保存');
-    }else if(type==='manual'){
-      if(!data.name.trim()||!Number.isFinite(Number(data.balance))||Math.abs(Number(data.balance))>1e12){formError('请填写账户名称和有效余额');return;}
-      const id=form.dataset.id||'manual-'+uid(),a={code:id,name:data.name.trim(),balance:C.round(Number(data.balance)),currency:'RMB',reckonIn:data.exclude==='on',source:'manual',type:'other',liabilities:Number(data.balance)<0};
-      state.assets=state.assets.filter(x=>x.code!==id).concat(a);state.categoryMap[id]=data.category;initializeBaselines();C.recordSnapshot(state);save();closeSheet();render();toast('手动账户已保存');
     }else if(type==='task'){
       if(!data.text.trim()){formError('请填写待办内容');return;}
       if(data.deadline&&!Number.isFinite(C.dateDay(data.deadline))){formError('请选择有效日期');return;}
@@ -436,7 +462,7 @@
       save();closeSheet();render();toast('关联账户已保存');
     }else if(type==='login'){
       if(state.demo){formError('请先退出示例模式，再连接真实账户');return;}
-      if(busy)return;busy=true;const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='正在登录并读取资产…';
+      if(busy)return;busy=true;state.lastSyncAttempt=new Date().toISOString();save();const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='正在登录并读取资产…';
       try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';applySync(result);closeSheet();}
       catch(err){formError(err.message);}
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
@@ -445,5 +471,5 @@
   window.hubBack=goBack;
   // Small explicit interface for browser QA, never exposes native credentials.
   window.shiji={get state(){return state;}, setState:s=>{state=C.migrate(s);render();},render,navigate,openGoal:goalForm};
-  call('load').then(result=>{if(result.ok){const hadZeroAssets=Array.isArray(result.state?.assets)&&result.state.assets.some(a=>a?.source==='xiaoqing'&&Number(a.balance)===0);state=C.migrate(result.state);connected=!!result.connected;if(hadZeroAssets)save();}else toast(result.error);render();if(connected&&(!state.lastSync||Date.now()-new Date(state.lastSync).getTime()>900000))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});
+  call('load').then(result=>{if(result.ok){const hadZeroAssets=Array.isArray(result.state?.assets)&&result.state.assets.some(a=>a?.source==='xiaoqing'&&Number(a.balance)===0);state=C.migrate(result.state);connected=!!result.connected;updateState.current=result.currentVersion||updateState.current;if(hadZeroAssets)save();}else toast(result.error);render();if(connected&&C.autoSyncDue(state))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});
 })();
