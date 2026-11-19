@@ -3,10 +3,11 @@
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
   let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', moduleSettingsId = 'wealth', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.7',latest:''}, downloadSession=null;
+  let updateState={status:'idle',current:'0.1.8',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
+    star:'M12 2l3.1 6.3 7 .9-5.1 5 1.2 7-6.2-3.3-6.2 3.3 1.2-7-5.1-5 7-.9z',
     pie:'M21 12a9 9 0 1 1-9-9v9zm-5-9a9 9 0 0 1 5 5h-5z',
     grid:'M3 3h7v7H3zm11 0h7v7h-7zM3 14h7v7H3zm11 0h7v7h-7z',
     wallet:'M20 8V5a2 2 0 0 0-2-2H5a3 3 0 0 0 0 6h16v11H5a3 3 0 0 1-3-3V6m19 7h-5v4h5',
@@ -43,7 +44,6 @@
   function money(n, decimals = 0) { return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
   function yuan(n) { return '¥' + money(n); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
-  function catName(id) { return esc((C.categories(state).find(c => c.id === id) || { name:'全部计入资产' }).name); }
   function hint(text) { return `<div class="hint-box">${text}</div>`; }
   function dateField(label, value, required=false) {
     return `<div class="form-field"><span>${label}</span><input type="hidden" name="deadline" value="${esc(value||'')}"><button type="button" class="date-field-button" data-action="pick-date" data-required="${required}" aria-label="选择${label}"><span>${value?esc(value):'选择日期'}</span>${icon('calendar')}</button></div>`;
@@ -63,11 +63,26 @@
   }
   window.onNativeResult = (id, result) => { const p = pending.get(id); if (p) { clearTimeout(p.timer); pending.delete(id); p.resolve(result); } };
   window.onNativeProgress = (id, loaded, total) => { const p=pending.get(id);if(p?.progress)p.progress(loaded,total); };
+  let saveQueued=false, saveScheduled=false, saveInProgress=false;
   async function persist() {
-    try { const result = await call('save', {state}); if (!result.ok) toast(result.error || '保存失败，请重试'); }
-    catch (e) { toast('本地保存未完成，请重试'); }
+    saveScheduled=false;
+    if(saveInProgress)return;
+    saveInProgress=true;
+    while(saveQueued){
+      saveQueued=false;
+      const snapshot=JSON.parse(JSON.stringify(state));
+      try {
+        const result=await call('save',{state:snapshot});
+        if(!result.ok)toast(result.error||'保存失败，请重试');
+      } catch(e){toast('本地保存未完成，请重试');}
+    }
+    saveInProgress=false;
   }
-  function save() { if (!state.demo) persist(); }
+  function save() {
+    if(state.demo)return;
+    saveQueued=true;
+    if(!saveInProgress&&!saveScheduled){saveScheduled=true;queueMicrotask(persist);}
+  }
   function toast(text) { const el = document.getElementById('toast'); el.textContent = text; el.classList.add('visible'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('visible'), 3600); }
   function emptyCard(title, text, action, label, type = 'flag') {
     return `<div class="card empty"><div class="empty-icon">${icon(type)}</div><h3>${title}</h3><p>${text}</p>${action ? `<button class="primary" data-action="${action}">${icon('plus')}${label}</button>` : ''}</div>`;
@@ -117,13 +132,13 @@
     return `<section><div class="hero"><div class="overview-hero-top"><div class="hero-label">总资产</div><div class="overview-sync"><button class="sync ${busy?'busy':''}" data-action="${connected?'sync':'connect'}" ${busy?'disabled':''}>${icon('sync')}${busy?'同步中':connected?'同步资产':'连接账户'}</button><small>${assets?syncLabel():'尚未同步'}</small></div></div><div class="asset-value">${assets?`<span class="currency-symbol">¥</span>${money(t.grossAssets,2)}`:'等待第一笔同步'}</div><div class="overview-metrics"><div><span>净资产</span><strong>${assets?yuan(t.total):'—'}</strong></div><div><span>总负债</span><strong>${assets?yuan(t.liabilities):'—'}</strong></div><div><span>未计入资产</span><strong>${assets?yuan(t.excludedTotal):'—'}</strong></div></div></div>${t.foreign?`<div class="warning-note">${t.foreign} 个外币账户暂未折算，未计入人民币目标，请在小青账核对。</div>`:''}</section>`;
   }
   function goalsWidget() {
-    const goals=state.goals.filter(g=>g.visible!==false);
-    return `<section class="section"><div class="section-head"><h2>存钱目标 <span class="section-count">${goals.length}</span></h2><button class="subtle" data-action="nav" data-page="goals">全部目标${icon('arrow')}</button></div>${goals.length ? goals.slice(0,2).map(goalCard).join('') : state.goals.length?emptyCard('暂无展示的目标','','open-all-goals','查看全部目标'):emptyCard('设置第一个存钱目标','填写金额和截止日期，进度会随资产更新。','add-goal','新建目标')}</section>`;
+    const current=state.goals.find(g=>g.visible!==false);
+    return `<section class="section"><div class="section-head"><h2>存钱目标</h2><button class="subtle" data-action="nav" data-page="goals">全部目标${icon('arrow')}</button></div>${current ? goalCard(current,false,true) : emptyCard('设置第一个存钱目标','填写金额和截止日期，进度会随资产更新。','add-goal','新建目标')}</section>`;
   }
   function goalStatus(g) {const m=C.goalMetrics(state,g);return m.complete?'completed':m.overdue?'missed':'active';}
-  function goalCard(g, tailored = false) {
+  function goalCard(g, tailored = false, currentMark = false) {
     const m = C.goalMetrics(state,g), tag = m.complete ? '已达成' : m.overdue ? '已逾期' : `剩余 ${m.days} 天`;
-    return `<button class="card goal-card" data-action="goal-detail" data-id="${esc(g.id)}"><div class="goal-top"><div class="goal-icon">${icon(g.scope === 'all' ? 'flag' : 'pie')}</div><div class="goal-title"><h3>${esc(g.name)}</h3><small>${esc(g.deadline)} 截止 · ${catName(g.scope)}</small></div><span class="chip ${m.complete ? 'green' : m.overdue ? 'warn' : 'gray'}">${tag}</span></div>
+    return `<button class="card goal-card ${currentMark?'goal-card-current':''}" data-action="goal-detail" data-id="${esc(g.id)}"><div class="goal-top"><div class="goal-icon">${icon(currentMark?'star':'flag')}</div><div class="goal-title"><h3>${esc(g.name)}</h3><small>${esc(g.deadline)} 截止${currentMark?'<em class="goal-current-label"> · 当前目标</em>':''}</small></div><span class="chip ${m.complete ? 'green' : m.overdue ? 'warn' : 'gray'}">${tag}</span></div>
       <div class="goal-numbers"><strong>${hasAssets() ? yuan(m.current) : '—'}</strong><span>/ ${yuan(g.amount)}</span></div><div class="progress"><i style="width:${hasAssets() ? m.bar : 0}%"></i></div><div class="goal-foot"><b>${hasAssets() ? `${money(m.percent,1)}% 已完成` : '同步资产后计算进度'}</b>${!tailored||pageOption('goals','monthly') ? `<span>${!hasAssets()?'等待资产数据':m.complete ? '这一程，已经抵达' : m.monthly == null ? '需调整截止日期' : `每月还需 ${yuan(m.monthly)}`}</span>` : ''}</div></button>`;
   }
   function allocationWidget() {
@@ -137,10 +152,9 @@
   function goalsView() {
     const filtered=goalFilter==='all'?state.goals:state.goals.filter(g=>goalStatus(g)===goalFilter);
     const tabs=[['all','全部'],['active','进行中'],['completed','已达成'],['missed','未达成']];
-    return title('','存钱目标','为每个目标设定自己的时间和金额。',`<div class="page-actions"><button class="icon-btn" aria-label="新建目标" data-action="add-goal">${icon('plus')}</button><button class="icon-btn" aria-label="目标设置" data-action="open-goal-settings">${icon('settings')}</button></div>`,true) +
+    return title('','存钱目标','',`<div class="page-actions"><button class="icon-btn" aria-label="新建目标" data-action="add-goal">${icon('plus')}</button></div>`,true) +
       `<div class="goal-filter-tabs" role="tablist" aria-label="目标状态">${tabs.map(([id,label])=>`<button role="tab" aria-selected="${goalFilter===id}" class="${goalFilter===id?'selected':''}" data-action="goal-filter" data-filter="${id}">${label}</button>`).join('')}</div>` +
-      (filtered.length ? filtered.map(g=>`<div class="goal-list-item ${g.visible===false?'is-hidden':''}" data-sort-type="goal" data-sort-id="${esc(g.id)}">${goalCard(g,true)}<div class="goal-list-tools"><span>资产页显示</span><button class="switch ${g.visible!==false?'on':''}" role="switch" aria-checked="${g.visible!==false}" aria-label="在资产页显示${esc(g.name)}" data-action="toggle-goal-visible" data-id="${esc(g.id)}"><i></i></button><button class="list-delete" aria-label="删除${esc(g.name)}" data-action="delete-goal-confirm" data-id="${esc(g.id)}">${icon('trash')}</button></div></div>`).join('') : state.goals.length ? emptyCard('这里还没有目标','','','') : emptyCard('未来的你，会感谢今天','设置目标金额和截止日期，进度会随资产同步更新。','add-goal','创建长期目标')) +
-      '<p class="footnote">目标按所选资产口径分别计算；共享同一份资产的目标属于阶段里程碑，不代表资金已独立分配，不能把它们的已攒金额相加。</p>';
+      (filtered.length ? filtered.map(g=>`<div class="goal-list-item ${g.visible!==false?'is-current':''}" style="--swipe-width:186px" data-sort-type="goal" data-sort-id="${esc(g.id)}"><div class="goal-swipe-actions"><button class="goal-swipe-current" data-action="set-current-goal" data-id="${esc(g.id)}" ${g.visible!==false?'disabled':''}>${icon('star')}<span>当前目标</span></button><button class="goal-swipe-delete" aria-label="删除${esc(g.name)}" data-action="delete-goal-confirm" data-id="${esc(g.id)}">${icon('trash')}<span>删除</span></button></div><div class="goal-swipe-content">${goalCard(g,true,g.visible!==false)}</div></div>`).join('') : state.goals.length ? emptyCard('这里还没有目标','','','') : emptyCard('未来的你，会感谢今天','设置目标金额和截止日期，进度会随资产同步更新。','add-goal','创建长期目标'));
   }
   function wealthView() {
     return title('','账户列表','','',true) +
@@ -157,14 +171,15 @@
         const progressText=r.target<=0?'':`${money(r.current/r.target*100,1)}%`;
         const accounts=state.assets.filter(a=>C.category(state,a)===r.id);
         const accountMarkup=accounts.map(a=>`<span class="allocation-account-chip" title="${esc(a.name)}"><span class="allocation-account-logo">${accountBadge(a)}</span><span class="allocation-account-name">${esc(a.name)}</span></span>`).join('');
-        return `<article class="allocation-item" data-sort-type="category" data-sort-id="${esc(r.id)}">${r.id==='other'?'':`<button class="allocation-swipe-delete" aria-label="删除${esc(r.name)}" data-action="category-delete-confirm" data-id="${esc(r.id)}">${icon('trash')}<span>删除</span></button>`}<div class="card allocation-row"><div class="allocation-row-top"><button class="allocation-row-title" data-action="category-edit" data-id="${esc(r.id)}" aria-label="编辑${esc(r.name)}"><i class="dot" style="background:${r.color}"></i><h3>${esc(r.name)}</h3>${icon('edit')}</button><div class="category-stats-control"><span class="${r.statsEnabled!==false?'active':''}">${r.statsEnabled!==false?'参与统计':'已暂停'}</span><button class="switch ${r.statsEnabled!==false?'on':''}" role="switch" aria-checked="${r.statsEnabled!==false}" aria-label="${r.name}参与资产配置统计" data-action="toggle-category-stats" data-id="${esc(r.id)}"><i></i></button></div></div><div class="allocation-value-row"><div class="allocation-amount"><small>当前金额${r.statsEnabled===false?' · 未统计':pageOption('allocation','share')?` · ${money(r.share,1)}%`:''}</small><strong>${yuan(r.current)}</strong></div><button class="allocation-amount allocation-target-edit" data-action="allocation-edit" data-id="${esc(r.id)}"><small>${targetLabel}${icon('arrow')}</small><strong>${r.target>0?yuan(r.desired):'设置目标'}</strong></button></div>${pageOption('allocation','progress')&&r.target>0?`<div class="progress"><i style="background:${r.color};width:${r.progress}%"></i></div>`:''}${pageOption('allocation','gap')&&r.target>0?`<div class="allocation-bottom"><span>${gapText}</span><b>${progressText}</b></div>`:''}<div class="allocation-accounts">${accountMarkup}<button class="allocation-account-add" data-action="category-accounts" data-id="${esc(r.id)}" aria-label="关联${esc(r.name)}账户">＋</button></div></div></article>`;
+        return `<article class="allocation-item" data-sort-type="category" data-sort-id="${esc(r.id)}">${r.id==='other'?'':`<button class="allocation-swipe-delete" aria-label="删除${esc(r.name)}" data-action="category-delete-confirm" data-id="${esc(r.id)}">${icon('trash')}<span>删除</span></button>`}<div class="card allocation-row"><div class="allocation-row-top"><button class="allocation-row-title" data-action="category-edit" data-id="${esc(r.id)}" aria-label="编辑${esc(r.name)}"><i class="dot" style="background:${r.color}"></i><h3>${esc(r.name)}</h3>${icon('edit')}</button><div class="category-stats-control"><span class="${r.statsEnabled!==false?'active':''}">${r.statsEnabled!==false?'已统计':'未统计'}</span><button class="switch ${r.statsEnabled!==false?'on':''}" role="switch" aria-checked="${r.statsEnabled!==false}" aria-label="${r.name}${r.statsEnabled!==false?'已统计':'未统计'}" data-action="toggle-category-stats" data-id="${esc(r.id)}"><i></i></button></div></div><div class="allocation-value-row"><div class="allocation-amount"><small>当前金额${r.statsEnabled===false?' · 未统计':pageOption('allocation','share')?` · ${money(r.share,1)}%`:''}</small><strong>${yuan(r.current)}</strong></div><button class="allocation-amount allocation-target-edit" data-action="allocation-edit" data-id="${esc(r.id)}"><small>${targetLabel}${icon('arrow')}</small><strong>${r.target>0?yuan(r.desired):'设置目标'}</strong></button></div>${pageOption('allocation','progress')&&r.target>0?`<div class="progress"><i style="background:${r.color};width:${r.progress}%"></i></div>`:''}${pageOption('allocation','gap')&&r.target>0?`<div class="allocation-bottom"><span>${gapText}</span><b>${progressText}</b></div>`:''}<div class="allocation-accounts">${accountMarkup}<button class="allocation-account-add" data-action="category-accounts" data-id="${esc(r.id)}" aria-label="关联${esc(r.name)}账户">＋</button></div></div></article>`;
       }).join('');
   }
   function accountsView() {
     const sorted=state.assets.slice();
     if(state.accountSort!=='original')sorted.sort((a,b)=>(Number(b.balance)-Number(a.balance))*(state.accountSort==='amount-asc'?-1:1));
-    return `<div class="section-head accounts-head"><h2>${state.assets.length} 个账户</h2><div class="section-actions"><select class="account-sort" data-account-sort aria-label="账户排序"><option value="amount-desc" ${state.accountSort==='amount-desc'?'selected':''}>金额从高到低</option><option value="amount-asc" ${state.accountSort==='amount-asc'?'selected':''}>金额从低到高</option><option value="original" ${state.accountSort==='original'?'selected':''}>原始顺序</option></select><button class="mini-button ${busy ? 'busy' : ''}" data-action="sync" ${busy?'disabled':''}>${busy?'同步中':'同步'}</button></div></div>` +
-      (hasAssets() ? `<div class="card">${sorted.map(a => { const bank=bankFor(a), amount=C.cents(a.balance), kind=bankCardType(a), bankName=bank?.[1]||String(a.bankName||'').trim(), labels=[bankName,kind,a.currency!=='RMB'?'外币暂未折算':amount<0?'负债':a.reckonIn?'不计入':''].filter(Boolean);return `<div class="account ${a.reckonIn&&amount>0 ? 'excluded' : ''}"><div class="account-badge">${accountBadge(a)}</div><div class="account-main"><h3>${esc(a.name)}</h3>${labels.length?`<small>${labels.map(esc).join(' · ')}</small>`:''}</div><div class="account-value"><strong>${esc(a.currency === 'RMB' ? '¥' : a.currency+' ')}${money(a.balance,2)}</strong><span class="category-select-wrap"><select aria-label="${esc(a.name)}的资产类别" data-category-code="${esc(a.code)}">${C.categories(state).map(c => `<option value="${c.id}" ${C.category(state,a)===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}</select>${icon('arrow')}</span></div></div>`;}).join('')}</div>` : emptyCard('先把资产连接进来','登录小青账后读取资产。','connect','连接小青账','wallet'));
+    const sortLabels={'amount-desc':'金额从高到低','amount-asc':'金额从低到高',original:'原始顺序'};
+    return `<div class="section-head accounts-head"><h2>${state.assets.length} 个账户</h2><div class="section-actions"><button class="account-sort" data-action="account-sort" aria-label="账户排序，当前${sortLabels[state.accountSort]||sortLabels['amount-desc']}">${sortLabels[state.accountSort]||sortLabels['amount-desc']}${icon('arrow')}</button><button class="mini-button account-sync ${busy ? 'busy' : ''}" data-action="sync" ${busy?'disabled':''}>${busy?'同步中':'同步'}</button></div></div>` +
+      (hasAssets() ? `<div class="card">${sorted.map(a => { const bank=bankFor(a), amount=C.cents(a.balance), kind=bankCardType(a), bankName=bank?.[1]||String(a.bankName||'').trim(), labels=[bankName,kind,a.currency!=='RMB'?'外币暂未折算':amount<0?'负债':a.reckonIn?'不计入':''].filter(Boolean), category=C.categories(state).find(c=>c.id===C.category(state,a));return `<div class="account ${a.reckonIn&&amount>0 ? 'excluded' : ''}"><div class="account-badge">${accountBadge(a)}</div><div class="account-main"><h3>${esc(a.name)}</h3>${labels.length?`<small>${labels.map(esc).join(' · ')}</small>`:''}</div><div class="account-value"><strong>${esc(a.currency === 'RMB' ? '¥' : a.currency+' ')}${money(a.balance,2)}</strong><button class="category-select" data-action="account-category" data-code="${esc(a.code)}" aria-label="${esc(a.name)}的资产类别，当前${esc(category?.name||'其他')}"><i class="dot" style="background:${category?.color||'#a9b4c6'}"></i><span>${esc(category?.name||'其他')}</span>${icon('arrow')}</button></div></div>`;}).join('')}</div>` : emptyCard('先把资产连接进来','登录小青账后读取资产。','connect','连接小青账','wallet'));
   }
   function taskRow(t, inLibrary=false) {
     const urgency=!t.done?C.taskUrgency(t):null, priority={low:'低',medium:'中',high:'高'}[t.priority]||'中';
@@ -199,7 +214,7 @@
     return title('','设置','管理每个页面显示的内容。') +
       `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="page-settings" data-id="wealth"><span class="row-glyph">${icon('wallet')}</span><div><h3>资产页面</h3><p>资产概览、存钱目标、资产配置</p></div>${icon('arrow')}</button><button class="settings-row" data-action="page-settings" data-id="todos"><span class="row-glyph">${icon('list')}</span><div><h3>待办页面</h3><p>已完成事项</p></div>${icon('arrow')}</button></div></section>` +
       `<section class="settings-section"><h2>连接与数据</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="connections"><span class="row-glyph">${icon('sync')}</span><div><h3>连接管理</h3><p>${connected?'已连接小青账 · 管理外部服务':'管理小青账与其他外部服务'}</p></div>${icon('arrow')}</button></div></section>` +
-      `<section class="settings-section"><h2>应用</h2><div class="settings-group update-group"><button class="update-button ${u.status==='available'?'has-update':''}" data-action="update-action" ${u.status==='checking'||u.status==='downloading'?'disabled':''}><span class="update-button-icon">${icon('sync')}</span><span class="update-button-copy"><strong>${esc(label)}</strong><small>当前版本 v${esc(u.current)}</small></span>${icon('arrow')}</button></div></section>`;
+      `<section class="settings-section"><h2>应用</h2><button class="update-button ${u.status==='available'?'has-update':''}" data-action="update-action" ${u.status==='checking'||u.status==='downloading'?'disabled':''}><span class="update-button-icon">${icon('sync')}</span><span class="update-button-copy"><strong>${esc(label)}</strong><small>当前版本 v${esc(u.current)}</small></span></button></section>`;
   }
   function versionParts(value) {
     const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(String(value || ''));
@@ -223,12 +238,12 @@
       updateState.status=newer?'available':'current';render();
     } catch (error) { updateState.status='error';toast(error.message||'检查更新失败');render(); }
   }
-  function updateProgress(loaded,total) {
+  function updateProgress(loaded,total,complete=false) {
     const status=overlay.querySelector('.update-progress-label'),bar=overlay.querySelector('.update-progress-bar');
     if(!status||!bar)return;
-    const percent=total>0?Math.max(0,Math.min(100,Math.round(loaded/total*100))):null;
+    const percent=total>0?Math.max(0,Math.min(complete?100:99,Math.round(loaded/total*100))):null;
     status.textContent=percent===null?`已下载 ${(loaded/1048576).toFixed(1)} MB`:`${percent}%`;
-    bar.style.width=percent===null?'25%':`${percent}%`;
+    bar.style.width=complete?'100%':percent===null?'25%':`${percent}%`;
   }
   async function downloadUpdate() {
     updateState.status='downloading';render();
@@ -238,7 +253,14 @@
       const result=await call('downloadUpdate',{}, {onStart:id=>{session.id=id;},progress:(loaded,total)=>{if(!session.cancelled)updateProgress(loaded,total);}});
       if(session.cancelled)return;
       if(!result.ok){toast(result.error||'下载失败，请重试');updateState.status='available';closeSheet();}
-      else {updateState.status='available';closeSheet();}
+      else {
+        updateProgress(1,1,true);
+        await new Promise(resolve=>setTimeout(resolve,320));
+        if(session.cancelled)return;
+        const installed=await call('installUpdate');
+        if(!installed.ok)toast(installed.error||'无法打开安装界面');
+        updateState.status='available';closeSheet();
+      }
     } catch(e) {if(!session.cancelled){toast(e.message||'下载失败，请重试');updateState.status='available';closeSheet();}}
     finally {if(downloadSession===session)downloadSession=null;render();}
   }
@@ -277,6 +299,18 @@
     setTimeout(()=>overlay.querySelector('input:not([type="date"]):not([type="checkbox"])')?.focus(),160);
   }
   function closeSheet() { datePicker=null;overlay.innerHTML=''; document.body.style.overflow=''; }
+  function choiceRow(label, action, value, selected, color='') {
+    return `<button class="choice-row ${selected?'selected':''}" data-action="${action}" data-value="${esc(value)}" aria-pressed="${selected}">${color?`<i class="dot" style="background:${color}"></i>`:''}<span>${esc(label)}</span><i class="choice-indicator">${selected?icon('check'):''}</i></button>`;
+  }
+  function accountSortSheet() {
+    const options=[['amount-desc','金额从高到低'],['amount-asc','金额从低到高'],['original','原始顺序']];
+    openSheet('账户排序',`<div class="choice-list">${options.map(([value,label])=>choiceRow(label,'select-account-sort',value,state.accountSort===value)).join('')}</div>`,'choice-dialog');
+  }
+  function accountCategorySheet(code) {
+    const account=state.assets.find(a=>a.code===code);if(!account)return;
+    openSheet('资产类别',`<div class="choice-list">${C.categories(state).map(c=>choiceRow(c.name,'select-account-category',c.id,C.category(state,account)===c.id,c.color)).join('')}</div>`,'choice-dialog');
+    overlay.querySelectorAll('[data-action="select-account-category"]').forEach(button=>button.dataset.code=code);
+  }
   function closeDatePicker() { overlay.querySelector('.date-picker-backdrop')?.remove();datePicker=null; }
   function openDatePicker(button) {
     const input=button.closest('form').elements.deadline, selected=input.value||C.today();
@@ -298,13 +332,31 @@
     panel.innerHTML=`<div class="date-picker-head"><button class="date-year-button" data-action="show-years">${p.year} 年 ${icon('arrow')}</button><button class="date-picker-close" data-action="close-date-picker" aria-label="关闭">${icon('close')}</button></div><div class="date-month-head"><button data-action="date-month" data-step="-1" aria-label="上个月">${icon('arrow')}</button><strong>${p.month} 月</strong><button data-action="date-month" data-step="1" aria-label="下个月">${icon('arrow')}</button></div><div class="date-weekdays">${['一','二','三','四','五','六','日'].map(d=>`<span>${d}</span>`).join('')}</div><div class="date-days">${days}</div>${p.required?'':'<button class="date-clear" data-action="clear-date">清除日期</button>'}`;
   }
   function formError(text) { const el=overlay.querySelector('.form-error'); if(el)el.textContent=text; else toast(text); }
+  function taskDateAfter(days) { const d=new Date();d.setDate(d.getDate()+days);return C.today(d); }
+  function setTaskDeadline(value) {
+    const form=overlay.querySelector('form[data-form="task"]');if(!form)return;
+    form.elements.deadline.value=value;
+    form.querySelector('.date-field-button span').textContent=value||'选择日期';
+    form.querySelectorAll('[data-action="task-quick-date"]').forEach(button=>button.classList.toggle('selected',value===taskDateAfter(Number(button.dataset.days))));
+  }
+  function closeTaskOption() { overlay.querySelector('.task-option-backdrop')?.remove(); }
+  function taskOption(kind) {
+    closeTaskOption();
+    const priority=overlay.querySelector('form[data-form="task"]')?.elements.priority.value||'medium';
+    const body=kind==='priority'
+      ? `<div class="choice-list">${[['low','低'],['medium','中'],['high','高']].map(([value,label])=>choiceRow(label,'select-task-priority',value,priority===value)).join('')}</div>`
+      : `<div class="task-offset-editor"><div class="task-offset-number"><input data-task-offset-count type="text" inputmode="numeric" maxlength="4" value="1" aria-label="多少天或周后"><span>后完成</span></div><div class="task-offset-units"><button class="selected" data-action="task-offset-unit" data-unit="day" aria-pressed="true">天</button><button data-action="task-offset-unit" data-unit="week" aria-pressed="false">周</button></div><div class="task-offset-error" role="alert"></div><button class="primary full" data-action="apply-task-offset">确定</button></div>`;
+    overlay.insertAdjacentHTML('beforeend',`<div class="task-option-backdrop"><section class="task-option-panel" role="dialog" aria-modal="true" aria-label="${kind==='priority'?'选择优先级':'选择完成时间'}"><div class="task-option-head"><h2>${kind==='priority'?'优先级':'完成时间'}</h2><button class="icon-btn" data-action="close-task-option" aria-label="关闭">${icon('close')}</button></div>${body}</section></div>`);
+    if(kind==='offset')overlay.querySelector('[data-task-offset-count]')?.focus();
+  }
   function taskForm(id) {
     const task=state.tasks.find(t=>t.id===id);
-    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label>${dateField('待完成日期',task?.deadline)}<label class="form-field"><span>优先级</span><select name="priority"><option value="low" ${task?.priority==='low'?'selected':''}>低</option><option value="medium" ${!task||task.priority==='medium'?'selected':''}>中</option><option value="high" ${task?.priority==='high'?'selected':''}>高</option></select></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
+    const priority=task?.priority||'medium', priorityLabel={low:'低',medium:'中',high:'高'}[priority];
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label>${dateField('待完成日期',task?.deadline)}<div class="task-quick-dates">${[[1,'明天'],[3,'3天后'],[7,'1周后'],[14,'2周后']].map(([days,label])=>`<button type="button" data-action="task-quick-date" data-days="${days}">${label}</button>`).join('')}<button type="button" data-action="task-offset">自定义</button></div><div class="form-field task-priority-field"><span>优先级</span><input type="hidden" name="priority" value="${priority}"><button type="button" class="task-priority-button" data-action="task-priority" aria-label="选择优先级，当前${priorityLabel}"><span>${priorityLabel}</span>${icon('arrow')}</button></div><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
   }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
-    openSheet(g?'编辑目标':'给未来起个名字',`<form data-form="goal" data-id="${esc(id||'')}"><label class="form-field"><span>目标名称</span><input name="name" maxlength="40" placeholder="例如：攒下第一笔底气" value="${esc(g?.name||'')}" required></label><label class="form-field"><span>目标金额 · 人民币</span><input name="amount" type="number" inputmode="decimal" min="0.01" max="1000000000000" step="0.01" placeholder="200000" value="${g?.amount||''}" required></label>${dateField('截止日期',g?.deadline||C.today(date),true)}<label class="form-field"><span>用哪部分资产计算进度</span><select name="scope"><option value="all">全部计入资产</option>${C.categories(state).map(c=>`<option value="${c.id}" ${g?.scope===c.id?'selected':''}>只看${esc(c.name)}</option>`).join('')}</select><small>按小青账“不计入”标签排除账户。多个目标可以共享同一份资产。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">${g?'保存目标':'开始靠近目标'}</button>${g?'<button type="button" class="text-btn danger full" data-action="delete-goal-confirm" data-id="'+esc(id)+'">删除这个目标</button>':''}</form>`);
+    openSheet(g?'编辑目标':'给未来起个名字',`<form data-form="goal" data-id="${esc(id||'')}"><label class="form-field"><span>目标名称</span><input name="name" maxlength="40" placeholder="例如：攒下第一笔底气" value="${esc(g?.name||'')}" required></label><label class="form-field"><span>目标金额 · 人民币</span><input name="amount" type="number" inputmode="decimal" min="0.01" max="1000000000000" step="0.01" placeholder="200000" value="${g?.amount||''}" required></label>${dateField('截止日期',g?.deadline||C.today(date),true)}<div class="form-error" role="alert"></div><button class="primary full" type="submit">${g?'保存目标':'开始靠近目标'}</button></form>`);
   }
   function goalDetail(id) {
     const g=state.goals.find(g=>g.id===id);if(!g)return;
@@ -333,11 +385,10 @@
     initializeBaselines();C.recordSnapshot(state);save();
   }
   function initializeBaselines(){for(const g of state.goals)if(g.baselinePending){g.baseline=C.goalValue(state,g);g.createdDate=C.today();g.baselinePending=false;}}
-  function rebaseCategoryGoals(){for(const g of state.goals)if(g.scope&&g.scope!=='all'){g.baseline=C.goalValue(state,g);g.createdDate=C.today();g.baselinePending=!hasAssets();}}
   function categoryForm(id) {
     const c=C.categories(state).find(c=>c.id===id);
     const accounts=categoryAccountFields(c);
-    openSheet(c?'编辑资产类别':'新的资产类别',`<form data-form="category" data-id="${esc(c?.id||'')}"><label class="form-field"><span>类别名称</span><input name="name" maxlength="12" value="${esc(c?.name||'')}" placeholder="例如：黄金" required></label>${colorPicker(c?.color||'#b89356')}<div class="category-account-section"><h3>包含账户</h3>${accounts||'<p class="category-no-accounts">暂无账户</p>'}</div><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存类别</button>${c&&c.id!=='other'?'<button class="text-btn danger full" type="button" data-action="category-delete-confirm" data-id="'+esc(c.id)+'">删除类别</button>':''}</form>`,'category-dialog');
+    openSheet(c?'编辑资产类别':'新的资产类别',`<form data-form="category" data-id="${esc(c?.id||'')}"><label class="form-field"><span>类别名称</span><input name="name" maxlength="12" value="${esc(c?.name||'')}" placeholder="例如：黄金" required></label>${colorPicker(c?.color||'#b89356')}<div class="category-account-section"><h3>包含账户</h3><div class="category-account-list" tabindex="0">${accounts||'<p class="category-no-accounts">暂无账户</p>'}</div></div><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存类别</button>${c&&c.id!=='other'?'<button class="text-btn danger full" type="button" data-action="category-delete-confirm" data-id="'+esc(c.id)+'">删除类别</button>':''}</form>`,'category-dialog category-editor-dialog');
   }
   function hexToHsv(hex) {
     const rgb=[1,3,5].map(i=>parseInt(hex.slice(i,i+2),16)/255),max=Math.max(...rgb),min=Math.min(...rgb),d=max-min;
@@ -375,7 +426,7 @@
   function assignCategoryAccounts(id,selected) {
     let changed=false;
     for(const asset of state.assets){const current=C.category(state,asset);if(selected.has(asset.code)&&current!==id){state.categoryMap[asset.code]=id;changed=true;}else if(!selected.has(asset.code)&&current===id&&id!=='other'){state.categoryMap[asset.code]='other';changed=true;}}
-    if(changed){rebaseCategoryGoals();C.recordSnapshot(state);}
+    if(changed)C.recordSnapshot(state);
   }
   function confirm(titleText, message, action, id) {
     openSheet(titleText,`<p class="footnote" style="font-size:13px;margin:0 0 24px">${message}</p><div class="form-actions"><button class="secondary" data-action="close">取消</button><button class="primary" data-action="${action}" data-id="${esc(id||'')}">确认</button></div>`);
@@ -427,8 +478,7 @@
     if(id==='other'||!state.categories.some(c=>c.id===id))return;
     state.categories=state.categories.filter(c=>c.id!==id);
     for(const code of Object.keys(state.categoryMap))if(state.categoryMap[code]===id)state.categoryMap[code]='other';
-    for(const goal of state.goals)if(goal.scope===id)goal.scope='other';
-    delete state.allocationGoals[id];rebaseCategoryGoals();C.recordSnapshot(state);save();closeSheet();render();
+    delete state.allocationGoals[id];C.recordSnapshot(state);save();closeSheet();render();
     toast('资产类别已删除');
   }
   function goBack() {
@@ -445,25 +495,36 @@
     'show-years':()=>{datePicker.mode='years';renderDatePicker();},
     'select-year':el=>{datePicker.year=Number(el.dataset.year);datePicker.mode='days';renderDatePicker();},
     'date-month':el=>{const d=new Date(datePicker.year,datePicker.month-1+Number(el.dataset.step),1);datePicker.year=d.getFullYear();datePicker.month=d.getMonth()+1;renderDatePicker();},
-    'select-day':el=>{const p=datePicker,value=`${p.year}-${String(p.month).padStart(2,'0')}-${String(el.dataset.day).padStart(2,'0')}`;p.input.value=value;p.button.querySelector('span').textContent=value;closeDatePicker();},
-    'clear-date':()=>{datePicker.input.value='';datePicker.button.querySelector('span').textContent='选择日期';closeDatePicker();},
+    'select-day':el=>{const p=datePicker,value=`${p.year}-${String(p.month).padStart(2,'0')}-${String(el.dataset.day).padStart(2,'0')}`;if(p.button.closest('form').dataset.form==='task')setTaskDeadline(value);else{p.input.value=value;p.button.querySelector('span').textContent=value;}closeDatePicker();},
+    'clear-date':()=>{if(datePicker.button.closest('form').dataset.form==='task')setTaskDeadline('');else{datePicker.input.value='';datePicker.button.querySelector('span').textContent='选择日期';}closeDatePicker();},
+    'task-quick-date':el=>setTaskDeadline(taskDateAfter(Number(el.dataset.days))),
+    'task-offset':()=>taskOption('offset'),
+    'task-priority':()=>taskOption('priority'),
+    'close-task-option':closeTaskOption,
+    'select-task-priority':el=>{const form=overlay.querySelector('form[data-form="task"]');if(!form||!['low','medium','high'].includes(el.dataset.value))return;form.elements.priority.value=el.dataset.value;const label={low:'低',medium:'中',high:'高'}[el.dataset.value];form.querySelector('.task-priority-button span').textContent=label;form.querySelector('.task-priority-button').setAttribute('aria-label',`选择优先级，当前${label}`);closeTaskOption();},
+    'task-offset-unit':el=>{el.parentElement.querySelectorAll('button').forEach(button=>{const selected=button===el;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});},
+    'apply-task-offset':()=>{const dialog=overlay.querySelector('.task-option-backdrop'),raw=dialog?.querySelector('[data-task-offset-count]')?.value.trim(),unit=dialog?.querySelector('.task-offset-units .selected')?.dataset.unit,count=Number(raw),days=count*(unit==='week'?7:1);if(!/^\d+$/.test(raw||'')||!Number.isInteger(count)||days<1||days>3650){dialog.querySelector('.task-offset-error').textContent='请输入 1 至 3650 天内的时间';return;}setTaskDeadline(taskDateAfter(days));closeTaskOption();},
     'update-action':()=>updateState.status==='available'?downloadUpdate():checkUpdate(),
     'cancel-update':cancelUpdate,
-    'open-modules':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'open-goal-settings':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'open-all-goals':()=>navigate('goals'), 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
+    'open-modules':()=>{moduleSettingsId='wealth';navigate('module-settings');}, 'open-all-goals':()=>navigate('goals'), 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
     'goal-filter':el=>{goalFilter=el.dataset.filter;render();},
-    'toggle-goal-visible':el=>{const g=state.goals.find(x=>x.id===el.dataset.id);if(!g)return;g.visible=g.visible===false;save();render();},
+    'set-current-goal':el=>{if(!state.goals.some(g=>g.id===el.dataset.id))return;for(const g of state.goals)g.visible=g.id===el.dataset.id;save();render();},
     'goal-detail':el=>goalDetail(el.dataset.id), 'assets-allocation':()=>navigate('allocation'),
     'allocation-edit':el=>allocationForm(el.dataset.id), login:loginSheet,sync,
+    'account-sort':accountSortSheet,
+    'select-account-sort':el=>{state.accountSort=el.dataset.value;save();closeSheet();render();},
+    'account-category':el=>accountCategorySheet(el.dataset.code),
+    'select-account-category':el=>{if(!state.assets.some(a=>a.code===el.dataset.code)||!C.categories(state).some(c=>c.id===el.dataset.value))return;state.categoryMap[el.dataset.code]=el.dataset.value;C.recordSnapshot(state);save();closeSheet();render();},
     'category-edit':el=>categoryForm(el.dataset.id), 'category-accounts':el=>categoryAccountsForm(el.dataset.id),
     'toggle-color-custom':el=>{const custom=el.closest('.color-picker').querySelector('.color-custom');custom.hidden=!custom.hidden;el.classList.toggle('active',!custom.hidden);},
     'color-preset':el=>setCategoryColor(el.closest('form'),el.dataset.color),
     'toggle-category-stats':el=>{const c=state.categories.find(x=>x.id===el.dataset.id);if(!c)return;c.statsEnabled=c.statsEnabled===false;save();render();},
     'allocation-delete-confirm':el=>confirm('删除类别目标？','只清除这个类别的目标，不影响账户或其他类别。','allocation-delete',el.dataset.id),
     'allocation-delete':el=>{delete state.allocationGoals[el.dataset.id];save();closeSheet();render();toast('类别目标已删除');},
-    'category-delete-confirm':el=>confirm('删除资产类别？','关联账户和引用该类别的存钱目标会转入“其他”；该类别的配置目标会删除。','category-delete',el.dataset.id),
+    'category-delete-confirm':el=>confirm('删除资产类别？','关联账户会转入“其他”，该类别的配置目标会删除。','category-delete',el.dataset.id),
     'category-delete':el=>deleteCategory(el.dataset.id),
     'delete-goal-confirm':el=>confirm('删除目标？','只删除目标设置，不会影响资产或小青账数据。','delete-goal',el.dataset.id),
-    'delete-goal':el=>{state.goals=state.goals.filter(g=>g.id!==el.dataset.id);save();closeSheet();render();toast('目标已删除');},
+    'delete-goal':el=>{const wasCurrent=state.goals.some(g=>g.id===el.dataset.id&&g.visible!==false);state.goals=state.goals.filter(g=>g.id!==el.dataset.id);if(wasCurrent&&state.goals.length)for(const g of state.goals)g.visible=g===state.goals[0];save();closeSheet();render();toast('目标已删除');},
     'toggle-page-option':el=>{const moduleId=el.dataset.module, optionId=el.dataset.option;if(!C.PAGE_OPTIONS[moduleId]?.some(o=>o.id===optionId))return;state.pageOptions[moduleId][optionId]=!pageOption(moduleId,optionId);save();render();},
     'page-settings':el=>{moduleSettingsId=el.dataset.id;navigate('module-settings');},
     'open-accounts':()=>navigate('wealth'),
@@ -475,16 +536,16 @@
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
     logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
-  document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open');if(open&&e.target.closest('.allocation-row')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
+  document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open,.goal-list-item.is-open');if(open&&e.target.closest('.allocation-row,.goal-swipe-content')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('task-option-backdrop')){closeTaskOption();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
   document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;beginSort(row,e);handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
   document.addEventListener('pointermove',moveSort);
   document.addEventListener('pointerup',e=>{if(sortState&&e.pointerId===sortState.pointerId)finishSort();});
   document.addEventListener('pointercancel',()=>finishSort(true));
-  document.addEventListener('pointerdown',e=>{const item=e.target.closest('.allocation-item');if(!item||item.dataset.sortId==='other'||e.target.closest('[data-drag-handle],.allocation-swipe-delete'))return;swipeState={item,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,offset:item.classList.contains('is-open')?-76:0,active:false};});
-  document.addEventListener('pointermove',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy))return;s.active=true;s.item.classList.add('is-swiping');document.querySelectorAll('.allocation-item.is-open').forEach(item=>{if(item!==s.item)item.classList.remove('is-open');});}s.item.querySelector('.allocation-row').style.transform=`translateX(${Math.max(-76,Math.min(0,s.offset+dx))}px)`;e.preventDefault();});
-  document.addEventListener('pointerup',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;swipeState=null;if(!s.active)return;const dx=e.clientX-s.startX;s.item.querySelector('.allocation-row').style.transform='';s.item.classList.remove('is-swiping');s.item.classList.toggle('is-open',s.offset+dx<-38);suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);});
-  document.addEventListener('pointercancel',()=>{if(!swipeState)return;swipeState.item.querySelector('.allocation-row').style.transform='';swipeState.item.classList.remove('is-swiping');swipeState=null;});
-  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item');if(!item)return;const hold={item,title,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;swipeState=null;if(item.classList.contains('allocation-item')){item.classList.remove('is-open','is-swiping');item.querySelector('.allocation-row').style.transform='';}beginSort(item,e);try{title.setPointerCapture(e.pointerId);}catch{}},380);});
+  document.addEventListener('pointerdown',e=>{const item=e.target.closest('.allocation-item,.goal-list-item');if(!item||item.dataset.sortId==='other'||e.target.closest('[data-drag-handle],.allocation-swipe-delete,.goal-swipe-actions'))return;const width=parseFloat(getComputedStyle(item).getPropertyValue('--swipe-width'))||76;swipeState={item,width,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,offset:item.classList.contains('is-open')?-width:0,active:false};});
+  document.addEventListener('pointermove',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy))return;s.active=true;s.item.classList.add('is-swiping');document.querySelectorAll('.allocation-item.is-open,.goal-list-item.is-open').forEach(item=>{if(item!==s.item)item.classList.remove('is-open');});}s.item.querySelector('.allocation-row,.goal-swipe-content').style.transform=`translateX(${Math.max(-s.width,Math.min(0,s.offset+dx))}px)`;e.preventDefault();});
+  document.addEventListener('pointerup',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;swipeState=null;if(!s.active)return;const dx=e.clientX-s.startX;s.item.querySelector('.allocation-row,.goal-swipe-content').style.transform='';s.item.classList.remove('is-swiping');s.item.classList.toggle('is-open',s.offset+dx<-Math.min(65,s.width/2));suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);});
+  document.addEventListener('pointercancel',()=>{if(!swipeState)return;swipeState.item.querySelector('.allocation-row,.goal-swipe-content').style.transform='';swipeState.item.classList.remove('is-swiping');swipeState=null;});
+  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item');if(!item)return;const hold={item,title,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;swipeState=null;item.classList.remove('is-open','is-swiping');item.querySelector('.allocation-row,.goal-swipe-content').style.transform='';beginSort(item,e);try{title.setPointerCapture(e.pointerId);}catch{}},380);});
   document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId||sortState)return;if(Math.hypot(e.clientX-s.startX,e.clientY-s.startY)>8){clearTimeout(s.timer);longPressState=null;}});
   document.addEventListener('pointerup',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;clearTimeout(s.timer);longPressState=null;});
   document.addEventListener('pointercancel',()=>{if(longPressState)clearTimeout(longPressState.timer);longPressState=null;});
@@ -493,16 +554,12 @@
   document.addEventListener('pointerup',e=>{if(colorDrag?.pointerId===e.pointerId)colorDrag=null;});
   document.addEventListener('pointercancel',()=>{colorDrag=null;});
   document.addEventListener('input',e=>{if(e.target.matches('[data-color-hue]')){const form=e.target.closest('form'),sv=form.querySelector('.color-sv');setCategoryColor(form,hsvToHex(Number(e.target.value),Number(sv.dataset.s),Number(sv.dataset.v)));}});
-  document.addEventListener('change',e=>{
-    if(e.target.dataset.accountSort!==undefined){state.accountSort=e.target.value;save();render();return;}
-    if(e.target.dataset.categoryCode){state.categoryMap[e.target.dataset.categoryCode]=e.target.value;rebaseCategoryGoals();C.recordSnapshot(state);save();render();toast('账户分类已保存');}
-  });
   document.addEventListener('submit',async e=>{
     const form=e.target;if(!form.dataset.form)return;e.preventDefault();const data=Object.fromEntries(new FormData(form)),type=form.dataset.form;
     if(type==='goal'){
       const error=C.validateGoal(data);if(error){formError(error);return;}
-      const old=state.goals.find(g=>g.id===form.dataset.id), g=Object.assign({},old||{},data,{name:data.name.trim(),amount:Number(data.amount),id:old?.id||uid()});
-      if(!old||old.scope!==g.scope){g.createdDate=C.today();g.baseline=C.goalValue(state,g);g.baselinePending=!hasAssets();}
+      const old=state.goals.find(g=>g.id===form.dataset.id), g=Object.assign({},old||{},data,{name:data.name.trim(),amount:Number(data.amount),scope:'all',visible:old?old.visible!==false:!state.goals.length,id:old?.id||uid()});
+      if(!old){g.createdDate=C.today();g.baseline=C.goalValue(state,g);g.baselinePending=!hasAssets();}
       if(old)state.goals[state.goals.findIndex(x=>x.id===g.id)]=g;else state.goals.push(g);save();closeSheet();render();toast('目标已保存');
     }else if(type==='allocation'){
       const id=form.dataset.id,target=Number(data.target);

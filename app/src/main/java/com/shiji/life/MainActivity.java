@@ -143,6 +143,7 @@ public class MainActivity extends Activity {
                             break;
                         case "sync": result = sync(); break;
                         case "checkUpdate": result = checkUpdate(); break;
+                        case "installUpdate": result = installUpdate(); break;
                         case "downloadUpdate":
                             try { result = downloadUpdate(id); }
                             catch (Exception e) {
@@ -310,11 +311,18 @@ public class MainActivity extends Activity {
             } finally { activeDownloadConnection = null; con.disconnect(); }
         } finally { if (part.exists()) part.delete(); }
         checkDownloadCancelled(id);
+        return ok().put("downloaded", true);
+    }
+
+    private JSONObject installUpdate() throws Exception {
+        File apk = new File(getCacheDir(), "morrow-update.apk");
+        if (!apk.isFile() || apk.length() == 0) throw new UserError("安装包不存在，请重新下载");
+        if (!getPackageManager().canRequestPackageInstalls()) throw new UserError("请允许 Morrow 安装应用后重试");
         Uri uri = Uri.parse("content://" + getPackageName() + ".updates/update.apk");
         Intent install = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
         runOnUiThread(() -> startActivity(install));
-        return ok().put("downloaded", true);
+        return ok();
     }
 
     private String downloadText(String url, int max) throws Exception {

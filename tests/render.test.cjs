@@ -81,7 +81,9 @@ test('asset and todo pages have independent visibility settings',async()=>{
   assert.ok(!app.innerHTML.includes('class="progress"'));
   window.shiji.navigate('goals');
   assert.ok(app.innerHTML.includes('data-sort-id="g"'));
-  assert.ok(app.innerHTML.includes('aria-checked="false" aria-label="在资产页显示已达成"'));
+  assert.ok(app.innerHTML.includes('data-action="set-current-goal"'));
+  assert.ok(app.innerHTML.includes('class="goal-list-item is-current"'));
+  assert.ok(!app.innerHTML.includes('goal-home-switch'));
   assert.ok(!app.innerHTML.includes('data-action="move-item"'));
   window.shiji.navigate('todos');
   assert.ok(app.innerHTML.includes('未完成'));

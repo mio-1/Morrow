@@ -4,7 +4,7 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 12;
+  const SCHEMA = 14;
   const WEALTH_BLOCKS = [
     {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}
   ];
@@ -53,6 +53,8 @@
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
     s.assets=s.assets.filter(a=>a&&typeof a==='object'&&!(a.source==='xiaoqing'&&Number(a.balance)===0));
     s.goals=s.goals.filter(g=>g&&typeof g==='object').map(g=>({...g,visible:g.visible!==false}));
+    const currentGoal=s.goals.find(g=>g.visible!==false)||s.goals[0];
+    for(const g of s.goals)g.visible=g===currentGoal;
     if(Number(value?.version||0)<11&&s.assets.length)for(const g of s.goals)if(!g.scope||g.scope==='all'){
       g.baseline=s.assets.filter(a=>a.currency==='RMB'&&!a.reckonIn&&Number(a.balance)>0).reduce((sum,a)=>sum+Number(a.balance),0);
       g.createdDate=today();g.baselinePending=false;
@@ -61,6 +63,10 @@
     s.categoryMap = s.categoryMap && typeof s.categoryMap === 'object' ? s.categoryMap : {};
     s.categories = Array.isArray(s.categories) ? s.categories.filter(c => c && typeof c.id==='string' && /^[a-zA-Z0-9_-]+$/.test(c.id) && typeof c.name==='string' && /^#[0-9a-fA-F]{6}$/.test(c.color)).map(c=>({...c,statsEnabled:c.statsEnabled===undefined?c.visible!==false:c.statsEnabled!==false})) : CATEGORIES.map(c => ({...c,statsEnabled:true}));
     if (!s.categories.some(c => c.id==='other')) s.categories.push({...CATEGORIES.find(c=>c.id==='other'),statsEnabled:true});
+    for(const g of s.goals){
+      if(g.scope && g.scope!=='all' && Number(value?.version||0)<13){g.baseline=totals(s).grossAssets;g.createdDate=today();g.baselinePending=!s.assets.length;}
+      g.scope='all';
+    }
     const order=Array.isArray(s.wealthOrder)?s.wealthOrder:[];
     s.wealthOrder=[...new Set(order.filter(id=>WEALTH_BLOCKS.some(b=>b.id===id)))].concat(WEALTH_BLOCKS.map(b=>b.id).filter(id=>!order.includes(id)));
     const savedGoals=s.allocationGoals&&typeof s.allocationGoals==='object'?s.allocationGoals:{};
@@ -124,22 +130,21 @@
     const score = Math.max(0, Math.min(1, 0.78 * timePressure + 0.11 * level));
     return {days, score, hue:Math.round(214 + 158 * score), label:days < 0 ? `逾期 ${-days} 天` : days === 0 ? '今天到期' : `剩 ${days} 天`};
   }
-  function goalValue(s, g) { const t = totals(s); return g.scope && g.scope !== 'all' ? (t.categories[g.scope] || 0) : t.grossAssets; }
+  function goalValue(s) { return totals(s).grossAssets; }
   function goalMetrics(s, g, now = today()) {
     const current = goalValue(s, g), amount = Number(g.amount), remaining = Math.max(0, round(amount - current));
     const nowDay = dateDay(now), deadlineDay = dateDay(g.deadline), createdDay = dateDay(g.createdDate);
     const days = deadlineDay - nowDay, complete = remaining === 0;
     const elapsed = nowDay - createdDay, duration = deadlineDay - createdDay;
     const baseline = Number(g.baseline || 0), plan = baseline + (amount - baseline) * Math.max(0, Math.min(1, duration > 0 ? elapsed / duration : 1));
-    const scoped = g.scope && g.scope !== 'all', basis = scoped ? categoryBasis(s) : null;
     let first = null, firstDay = Infinity;
     for (const h of s.history) {
       const day = dateDay(h.date), age = nowDay - day;
-      if (age >= 7 && age <= 30 && (scoped ? h.categoryBasis === basis : Number.isFinite(h.grossAssets)) && day < firstDay) { first = h; firstDay = day; }
+      if (age >= 7 && age <= 30 && Number.isFinite(h.grossAssets) && day < firstDay) { first = h; firstDay = day; }
     }
     let estimate = null, dailyRate = null;
     if (first) {
-      const initial = g.scope && g.scope !== 'all' ? first.categories[g.scope] || 0 : first.grossAssets;
+      const initial = first.grossAssets;
       const span = nowDay - firstDay;
       dailyRate = (current - initial) / span;
       if (dailyRate > 0 && !complete) { const d = new Date((nowDay + Math.ceil(remaining / dailyRate)) * 86400000); estimate = d.toISOString().slice(0, 10); }
