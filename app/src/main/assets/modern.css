@@ -337,11 +337,13 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .goal-card-current .goal-icon svg { fill:#e4c776; stroke:#a9843f; }
 .goal-list-item.is-swiping .goal-swipe-content,.allocation-item.is-swiping .allocation-row { will-change:transform; }
 .goal-current-label { color:#a47f3f; font-style:normal; font-weight:700; white-space:nowrap; }
-.goal-swipe-actions { position:absolute; inset:0 0 0 auto; width:var(--swipe-width, 186px); display:flex; }
-.goal-swipe-current { width:110px; padding:0 9px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px; background:#fbf4e4; color:#9c7837; font-size:11px; font-weight:650; line-height:1.4; }
-.goal-swipe-current svg { width:20px; height:20px; }
-.goal-swipe-current:disabled { opacity:1; color:#b59d6d; }
-.goal-swipe-delete { width:76px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#fff1f1; color:#d66a72; font-size:11px; font-weight:650; }
+.goal-swipe-actions { position:absolute; inset:0 0 0 auto; width:var(--swipe-width, 152px); display:flex; }
+.goal-swipe-current { width:50%; padding:0 5px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#f0f2f6; color:#8995a8; font-size:11px; font-weight:650; line-height:1.4; }
+.goal-swipe-current svg { width:20px; height:20px; fill:none; stroke:#8995a8; }
+.goal-list-item.is-current .goal-swipe-current { background:#f7edda; color:#9b7634; }
+.goal-list-item.is-current .goal-swipe-current svg { fill:#d8b66d; stroke:#9b7634; }
+.goal-swipe-current:disabled { opacity:1; cursor:default; }
+.goal-swipe-delete { width:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; background:#fff1f1; color:#d66a72; font-size:11px; font-weight:650; }
 .goal-list-item.is-open .goal-swipe-delete,.goal-list-item.is-swiping .goal-swipe-delete { background:#e66b73; color:#fff; }
 .goal-swipe-delete svg { width:19px; height:19px; }
 .goal-list-item .goal-top { touch-action:none; -webkit-user-select:none; user-select:none; }
