@@ -3,7 +3,7 @@
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
   let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', salaryFocusYear=null, connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.13',latest:''}, downloadSession=null;
+  let updateState={status:'idle',current:'0.1.14',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -306,7 +306,7 @@
   function xiaoqingView() {
     const trendStatus={ready:'已接入小青账资产变动',empty:'小青账暂未返回资产变动记录','rate-limited':'小青账提示请求频繁，稍后同步再试',rejected:'小青账拒绝了资产变动请求',unavailable:'资产变动暂不可用，账户同步不受影响',format:'资产变动格式需要适配'}[state.trendStatus]||'下次同步时读取资产变动';
     return title('','小青账','只读同步资产账户。','',true) +
-      `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<div class="settings-toggle-row xiaoqing-trend-status"><div><h3>资产趋势</h3><p>${trendStatus}${state.trendStatus==='format'&&state.trendShape?' · '+esc(state.trendShape):''}${state.trendCode?' · '+esc(state.trendCode):''}</p></div></div><button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
+      `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<div class="settings-toggle-row xiaoqing-trend-status"><div><h3>资产趋势</h3><p>${trendStatus}${state.trendStatus==='format'&&state.trendShape?' · '+esc(state.trendShape):''}${state.trendCode?' · '+esc(state.trendCode):''}${state.trendMessage?' · '+esc(state.trendMessage):''}</p></div></div><button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
   }
   function openSheet(titleText, body, dialogClass='') {
     datePicker=null;
@@ -424,6 +424,7 @@
       }
     }else if(result.trendStatus)state.trendStatus=result.trendStatus;
     state.trendCode=typeof result.trendCode==='string'&&/^[A-Z0-9_-]{1,64}$/.test(result.trendCode)?result.trendCode:'';
+    state.trendMessage=typeof result.trendMessage==='string'?result.trendMessage.slice(0,100):'';
     state.lastSync=new Date(result.syncedAt).toISOString();state.lastSyncAttempt=state.lastSync;connected=true;
     initializeBaselines();C.recordSnapshot(state);save();
   }
@@ -595,7 +596,7 @@
     'delete-task':el=>confirm('删除这条待办？','删除后无法恢复。','delete-task-now',el.dataset.id),
     'delete-task-now':el=>{state.tasks=state.tasks.filter(t=>t.id!==el.dataset.id);save();closeSheet();render();},
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
-    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.trendCode='';state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
+    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.trendCode='';state.trendMessage='';state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
   document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open,.goal-list-item.is-open');if(open&&e.target.closest('.allocation-row,.goal-swipe-content')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('task-option-backdrop')){closeTaskOption();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
   document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('.salary-chart-point')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
@@ -655,7 +656,7 @@
     }else if(type==='login'){
       if(state.demo){formError('请先退出示例模式，再连接真实账户');return;}
       if(busy)return;busy=true;state.lastSyncAttempt=new Date().toISOString();save();const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='正在登录并读取资产…';
-      try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';if(result.ok){state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.trendCode='';}applySync(result);closeSheet();}
+      try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';if(result.ok){state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.trendCode='';state.trendMessage='';}applySync(result);closeSheet();}
       catch(err){formError(err.message);}
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
     }

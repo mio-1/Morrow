@@ -223,9 +223,17 @@ public class MainActivity extends Activity {
             accounts.put(entry);
         }
         JSONObject result = ok().put("accounts", accounts).put("syncedAt",System.currentTimeMillis());
+        JSONArray assetCodes = new JSONArray();
+        for (int i=0;i<accounts.length();i++) {
+            JSONObject account = accounts.getJSONObject(i);
+            if (account.getDouble("balance") > 0d && !account.optBoolean("reckonIn", false)
+                && "RMB".equals(account.optString("currency"))) assetCodes.put(account.getString("code"));
+        }
+        if (assetCodes.length() == 0) return result.put("trendStatus", "empty");
         try {
             // This read is independent of the account list: a history failure must not discard balances.
-            JSONObject history = http("/bill/asset-change/listAll", null, token);
+            JSONObject history = http("/bill/asset-change/listAllPost",
+                new JSONObject().put("assetCodes", assetCodes).put("days", 365), token);
             if (history.optBoolean("succ", false)) {
                 Object data = history.opt("data");
                 if (data instanceof JSONArray || data instanceof JSONObject) result.put("trendData", data);
@@ -233,9 +241,23 @@ public class MainActivity extends Activity {
             } else {
                 String code = history.optString("code", "");
                 result.put("trendStatus", rateLimited(history) ? "rate-limited" : "CLOUD-ILLEGAL_REQUEST".equals(code) ? "rejected" : "unavailable");
-                if (code.matches("[A-Z0-9_-]{1,64}")) result.put("trendCode", code);
+                if (code.matches("[A-Z0-9_-]{1,59}")) result.put("trendCode", "POST_" + code);
+                String message = history.optString("msg", "").replaceAll("[\\r\\n\\t\\p{Cntrl}]", " ").trim();
+                if (!message.isEmpty()) result.put("trendMessage", message.length() > 100 ? message.substring(0, 100) : message);
             }
-        } catch (Exception ignored) { result.put("trendStatus", "unavailable"); }
+        } catch (Exception e) {
+            result.put("trendStatus", "unavailable");
+            // Only report fixed categories; never expose a URL, response body or token.
+            String detail = "REQUEST_FAILED";
+            if (e instanceof HttpStatusError) detail = "HTTP_" + ((HttpStatusError)e).status;
+            else if (e instanceof java.net.SocketTimeoutException) detail = "TIMEOUT";
+            else if (e instanceof java.net.UnknownHostException) detail = "DNS_ERROR";
+            else if (e instanceof javax.net.ssl.SSLException) detail = "TLS_ERROR";
+            else if (e instanceof org.json.JSONException) detail = "INVALID_JSON";
+            else if (e instanceof IOException && "Response too large".equals(e.getMessage())) detail = "RESPONSE_TOO_LARGE";
+            else if (e instanceof IOException) detail = "NETWORK_ERROR";
+            result.put("trendCode", "POST_" + detail);
+        }
         return result;
     }
 
@@ -379,7 +401,7 @@ public class MainActivity extends Activity {
             }
             int status=con.getResponseCode();
             if(status==401) return new JSONObject().put("succ",false).put("code","OAUTH_TOKEN_FAILURE-401");
-            if(status < 200 || status >= 300) throw new UserError("服务暂时不可用（"+status+"），请稍后重试");
+            if(status < 200 || status >= 300) throw new HttpStatusError(status);
             try(InputStream in=con.getInputStream()) { return new JSONObject(read(in,5000000)); }
         } finally { con.disconnect(); }
     }
@@ -417,6 +439,10 @@ public class MainActivity extends Activity {
     private JSONObject ok() throws JSONException {return new JSONObject().put("ok",true);}
     private JSONObject error(String message) {try{return new JSONObject().put("ok",false).put("error",message);}catch(JSONException e){throw new RuntimeException(e);}}
     private static class UserError extends Exception {UserError(String message){super(message);}}
+    private static class HttpStatusError extends UserError {
+        final int status;
+        HttpStatusError(int status) {super("服务暂时不可用（"+status+"），请稍后重试");this.status=status;}
+    }
     @Override public void onBackPressed(){web.evaluateJavascript("window.hubBack ? window.hubBack() : false",value->{if("false".equals(value))finish();});}
     @Override public void onDestroy(){executor.shutdown();updateExecutor.shutdown();web.removeJavascriptInterface("NativeHub");web.destroy();super.onDestroy();}
 }
