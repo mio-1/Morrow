@@ -2,8 +2,8 @@
   'use strict';
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
-  let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.10',latest:''}, downloadSession=null;
+  let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', salaryFocusYear=null, connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
+  let updateState={status:'idle',current:'0.1.11',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -23,6 +23,7 @@
   };
   function icon(name) { return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[name] || paths.grid}"/></svg>`; }
   const BANKS = [
+    ['ztzq','中泰证券',/中泰证券|中泰齐富通|齐富通/i],['ttjj','天天基金',/天天基金(?:网)?/i],
     ['icbc','工商银行',/工商银行|工行|ICBC/i],['ccb','建设银行',/建设银行|建行|CCB/i],
     ['abc','农业银行',/农业银行|农行|ABC/i],['boc','中国银行',/中国银行|中行|BOC/i],
     ['cmb','招商银行',/招商银行|招行|CMB(?!C)/i],['bcm','交通银行',/交通银行|交行|BOCOM/i],
@@ -44,6 +45,7 @@
   function esc(value) { return String(value == null ? '' : value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function money(n, decimals = 0) { return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }); }
   function yuan(n) { return '¥' + money(n); }
+  function wan(n) { const value=Number(n||0)/10000;return `${Number(value.toFixed(value<1?2:1))}万`; }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function hint(text) { return `<div class="hint-box">${text}</div>`; }
   function dateField(label, value, required=false) {
@@ -162,21 +164,21 @@
     return title('','账户列表','','',true) + accountsView();
   }
   function salaryWidget() {
-    const years=C.annualSalary(state),latest=years[years.length-1],width=Math.max(300,40+(years.length-1)*68);
+    const years=C.annualSalary(state),width=Math.max(300,40+(years.length-1)*68);
     let chart='<div class="overview-trend-empty">暂无记录</div>';
     if(years.length){
       const max=Math.max(1,...years.map(row=>row.total));
-      const points=years.map((row,i)=>({x:years.length===1?width/2:20+i*(width-40)/(years.length-1),y:70-row.total/max*52}));
+      const points=years.map((row,i)=>({x:years.length===1?width/2:28+i*(width-56)/(years.length-1),y:84-row.total/max*50}));
       const line=points.map((point,i)=>`${i?'L':'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
-      const area=`${line} L${points[points.length-1].x.toFixed(1)} 72 L${points[0].x.toFixed(1)} 72 Z`;
-      chart=`<div class="salary-chart-scroll"><svg class="salary-chart" viewBox="0 0 ${width} 108" style="min-width:${width}px" preserveAspectRatio="none" role="img" aria-label="逐年工资总额折线图"><path d="M20 72H${width-20}" class="salary-chart-axis"/><path d="${area}" class="salary-chart-area"/><path d="${line}" class="salary-chart-line"/>${points.map((point,i)=>`<circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="salary-chart-dot"/><text x="${point.x.toFixed(1)}" y="101" text-anchor="middle">${years[i].year}</text>`).join('')}</svg></div>`;
+      const area=`${line} L${points[points.length-1].x.toFixed(1)} 86 L${points[0].x.toFixed(1)} 86 Z`;
+      chart=`<div class="salary-chart-scroll"><svg class="salary-chart" viewBox="0 0 ${width} 122" style="min-width:${width}px" preserveAspectRatio="none" role="group" aria-label="逐年工资总额折线图"><path d="M20 86H${width-20}" class="salary-chart-axis"/><path d="${area}" class="salary-chart-area"/><path d="${line}" class="salary-chart-line"/>${points.map((point,i)=>`<g class="salary-chart-point" data-action="open-salary-year" data-year="${years[i].year}" role="button" tabindex="0" aria-label="查看${years[i].year}年工资明细"><circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="14" class="salary-chart-hit"/><circle cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="3.5" class="salary-chart-dot"/><text class="salary-chart-value" x="${point.x.toFixed(1)}" y="${(point.y-12).toFixed(1)}" text-anchor="middle">${wan(years[i].total)}</text><text class="salary-chart-year" x="${point.x.toFixed(1)}" y="114" text-anchor="middle">${years[i].year}</text></g>`).join('')}</svg></div>`;
     }
-    return `<button class="card salary-trend" data-action="open-salary" aria-label="查看年工资明细"><div class="salary-trend-head"><strong>年工资趋势</strong><span>${latest?`${latest.year} · ${yuan(latest.total)}`:''}${icon('arrow')}</span></div>${chart}</button>`;
+    return `<div class="card salary-trend"><button class="salary-trend-head" data-action="open-salary" aria-label="查看工资明细"><strong>工资趋势</strong><span>${icon('arrow')}</span></button>${chart}</div>`;
   }
   function salaryDetailView() {
     const years=C.annualSalary(state).reverse();
-    return title('','年工资','',`<button class="title-add" data-action="add-salary" aria-label="添加年度工资">＋</button>`,true)+
-      (years.length?`<div class="salary-detail-list">${years.map(row=>`<button class="card salary-detail" data-action="edit-salary" data-year="${row.year}" aria-label="编辑 ${row.year} 年工资明细"><div class="salary-detail-head"><strong>${row.year}</strong><span>${yuan(row.total)}${icon('arrow')}</span></div><div class="salary-parts"><span>月工资 <b>${yuan(row.monthlySalary)}</b></span><span>年终奖 <b>${yuan(row.bonus)}</b></span><span>分红 <b>${yuan(row.dividend)}</b></span></div></button>`).join('')}</div>`:emptyCard('暂无工资记录','','',''));
+    return title('','工资明细','',`<button class="title-add" data-action="add-salary" aria-label="添加年度工资">＋</button>`,true)+
+      (years.length?`<div class="salary-detail-list">${years.map(row=>`<button class="card salary-detail ${salaryFocusYear===row.year?'is-focused':''}" data-action="edit-salary" data-year="${row.year}" aria-label="编辑 ${row.year} 年工资明细"><div class="salary-detail-head"><strong>${row.year}</strong><span>${yuan(row.total)}${icon('arrow')}</span></div><div class="salary-parts"><span>月工资 <b>${yuan(row.monthlySalary)}</b></span><span>年终奖 <b>${yuan(row.bonus)}</b></span><span>分红 <b>${yuan(row.dividend)}</b></span></div></button>`).join('')}</div>`:emptyCard('暂无工资记录','','',''));
   }
   function allocationPage() {
     return title('','资产配置','',`<button class="title-add" data-action="category-edit" aria-label="新增类别">＋</button>`,true) + allocationView();
@@ -343,11 +345,14 @@
   }
   function formError(text) { const el=overlay.querySelector('.form-error'); if(el)el.textContent=text; else toast(text); }
   function taskDateAfter(days) { const d=new Date();d.setDate(d.getDate()+days);return C.today(d); }
+  function taskDateAfterMonths(months) { const d=new Date(),day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+months);const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,last));return C.today(d); }
   function setTaskDeadline(value) {
     const form=overlay.querySelector('form[data-form="task"]');if(!form)return;
     form.elements.deadline.value=value;
     form.querySelector('.date-field-button span').textContent=value||'选择日期';
     form.querySelectorAll('[data-action="task-quick-date"]').forEach(button=>button.classList.toggle('selected',value===taskDateAfter(Number(button.dataset.days))));
+    const editor=form.querySelector('.task-offset-inline');if(editor)editor.hidden=true;
+    form.querySelector('[data-action="task-offset"]')?.setAttribute('aria-expanded','false');
   }
   function setTaskDestination(value) {
     const form=overlay.querySelector('form[data-form="task"]');if(!form)return;
@@ -365,17 +370,15 @@
   function taskOption(kind) {
     closeTaskOption();
     const priority=overlay.querySelector('form[data-form="task"]')?.elements.priority.value||'medium';
-    const body=kind==='priority'
-      ? `<div class="choice-list">${[['low','低'],['medium','中'],['high','高']].map(([value,label])=>choiceRow(label,'select-task-priority',value,priority===value)).join('')}</div>`
-      : `<div class="task-offset-editor"><div class="task-offset-number"><input data-task-offset-count type="text" inputmode="numeric" maxlength="4" value="1" aria-label="多少天或周后"><span>后完成</span></div><div class="task-offset-units"><button class="selected" data-action="task-offset-unit" data-unit="day" aria-pressed="true">天</button><button data-action="task-offset-unit" data-unit="week" aria-pressed="false">周</button></div><div class="task-offset-error" role="alert"></div><button class="primary full" data-action="apply-task-offset">确定</button></div>`;
-    overlay.insertAdjacentHTML('beforeend',`<div class="task-option-backdrop"><section class="task-option-panel" role="dialog" aria-modal="true" aria-label="${kind==='priority'?'选择优先级':'选择完成时间'}"><div class="task-option-head"><h2>${kind==='priority'?'优先级':'完成时间'}</h2><button class="icon-btn" data-action="close-task-option" aria-label="关闭">${icon('close')}</button></div>${body}</section></div>`);
-    if(kind==='offset')overlay.querySelector('[data-task-offset-count]')?.focus();
+    if(kind!=='priority')return;
+    const body=`<div class="choice-list">${[['low','低'],['medium','中'],['high','高']].map(([value,label])=>choiceRow(label,'select-task-priority',value,priority===value)).join('')}</div>`;
+    overlay.insertAdjacentHTML('beforeend',`<div class="task-option-backdrop"><section class="task-option-panel" role="dialog" aria-modal="true" aria-label="选择优先级"><div class="task-option-head"><h2>优先级</h2><button class="icon-btn" data-action="close-task-option" aria-label="关闭">${icon('close')}</button></div>${body}</section></div>`);
   }
   function taskForm(id) {
     const task=state.tasks.find(t=>t.id===id);
     const priority=task?.priority||'medium', priorityLabel={low:'低',medium:'中',high:'高'}[priority];
     const destination=task&&!Number.isFinite(C.dateDay(task.deadline))?'library':'schedule';
-    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><input type="hidden" name="destination" value="${destination}"><div class="task-destination" role="group" aria-label="待办位置"><button type="button" class="${destination==='schedule'?'selected':''}" data-action="task-destination" data-value="schedule" aria-pressed="${destination==='schedule'}">安排日期</button><button type="button" class="${destination==='library'?'selected':''}" data-action="task-destination" data-value="library" aria-pressed="${destination==='library'}">加入待办库</button></div><div class="task-schedule" ${destination==='library'?'hidden':''}>${dateField('待完成日期',task?.deadline)}<div class="task-quick-dates">${[[1,'明天'],[3,'3天后'],[7,'1周后'],[14,'2周后']].map(([days,label])=>`<button type="button" data-action="task-quick-date" data-days="${days}">${label}</button>`).join('')}<button type="button" data-action="task-offset">自定义</button></div></div><div class="form-field task-priority-field"><span>优先级</span><input type="hidden" name="priority" value="${priority}"><button type="button" class="task-priority-button" data-action="task-priority" aria-label="选择优先级，当前${priorityLabel}"><span>${priorityLabel}</span>${icon('arrow')}</button></div><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><input type="hidden" name="destination" value="${destination}"><div class="task-destination" role="group" aria-label="待办位置"><button type="button" class="${destination==='schedule'?'selected':''}" data-action="task-destination" data-value="schedule" aria-pressed="${destination==='schedule'}">安排日期</button><button type="button" class="${destination==='library'?'selected':''}" data-action="task-destination" data-value="library" aria-pressed="${destination==='library'}">加入待办库</button></div><div class="task-schedule" ${destination==='library'?'hidden':''}>${dateField('待完成日期',task?.deadline)}<div class="task-quick-dates">${[[1,'明天'],[3,'3天后'],[7,'1周后'],[14,'2周后']].map(([days,label])=>`<button type="button" data-action="task-quick-date" data-days="${days}">${label}</button>`).join('')}<button type="button" data-action="task-offset" aria-expanded="false">自定义</button></div><div class="task-offset-inline" hidden><div class="task-offset-number"><input data-task-offset-count type="text" inputmode="numeric" maxlength="4" value="1" aria-label="自定义时间数量"><span>后完成</span></div><div class="task-offset-units" role="group" aria-label="时间单位"><button type="button" class="selected" data-action="task-offset-unit" data-unit="day" aria-pressed="true">天</button><button type="button" data-action="task-offset-unit" data-unit="week" aria-pressed="false">周</button><button type="button" data-action="task-offset-unit" data-unit="month" aria-pressed="false">月</button></div><div class="task-offset-error" role="alert"></div><button type="button" class="task-offset-apply" data-action="apply-task-offset">使用这个日期</button></div></div><div class="form-field task-priority-field"><span>优先级</span><input type="hidden" name="priority" value="${priority}"><button type="button" class="task-priority-button" data-action="task-priority" aria-label="选择优先级，当前${priorityLabel}"><span>${priorityLabel}</span>${icon('arrow')}</button></div><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
   }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
@@ -528,19 +531,19 @@
     'clear-date':()=>{if(datePicker.button.closest('form').dataset.form==='task')setTaskDeadline('');else{datePicker.input.value='';datePicker.button.querySelector('span').textContent='选择日期';}closeDatePicker();},
     'task-quick-date':el=>setTaskDeadline(taskDateAfter(Number(el.dataset.days))),
     'task-destination':el=>setTaskDestination(el.dataset.value),
-    'task-offset':()=>taskOption('offset'),
+    'task-offset':el=>{const editor=el.closest('form').querySelector('.task-offset-inline');editor.hidden=!editor.hidden;el.setAttribute('aria-expanded',String(!editor.hidden));if(!editor.hidden)editor.querySelector('[data-task-offset-count]').focus();},
     'task-priority':()=>taskOption('priority'),
     'close-task-option':closeTaskOption,
     'select-task-priority':el=>{const form=overlay.querySelector('form[data-form="task"]');if(!form||!['low','medium','high'].includes(el.dataset.value))return;form.elements.priority.value=el.dataset.value;const label={low:'低',medium:'中',high:'高'}[el.dataset.value];form.querySelector('.task-priority-button span').textContent=label;form.querySelector('.task-priority-button').setAttribute('aria-label',`选择优先级，当前${label}`);closeTaskOption();},
     'task-offset-unit':el=>{el.parentElement.querySelectorAll('button').forEach(button=>{const selected=button===el;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});},
-    'apply-task-offset':()=>{const dialog=overlay.querySelector('.task-option-backdrop'),raw=dialog?.querySelector('[data-task-offset-count]')?.value.trim(),unit=dialog?.querySelector('.task-offset-units .selected')?.dataset.unit,count=Number(raw),days=count*(unit==='week'?7:1);if(!/^\d+$/.test(raw||'')||!Number.isInteger(count)||days<1||days>3650){dialog.querySelector('.task-offset-error').textContent='请输入 1 至 3650 天内的时间';return;}setTaskDeadline(taskDateAfter(days));closeTaskOption();},
+    'apply-task-offset':el=>{const editor=el.closest('.task-offset-inline'),raw=editor.querySelector('[data-task-offset-count]').value.trim(),unit=editor.querySelector('.task-offset-units .selected')?.dataset.unit,count=Number(raw),max=unit==='month'?120:unit==='week'?520:3650;if(!/^\d+$/.test(raw)||!Number.isInteger(count)||count<1||count>max){editor.querySelector('.task-offset-error').textContent=`请输入 1 至 ${max} ${unit==='month'?'月':unit==='week'?'周':'天'}`;return;}editor.querySelector('.task-offset-error').textContent='';setTaskDeadline(unit==='month'?taskDateAfterMonths(count):taskDateAfter(count*(unit==='week'?7:1)));},
     'update-action':()=>updateState.status==='available'?downloadUpdate():checkUpdate(),
     'cancel-update':cancelUpdate,
     'open-all-goals':()=>navigate('goals'), 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
     'goal-filter':el=>{goalFilter=el.dataset.filter;render();},
     'set-current-goal':el=>{if(!state.goals.some(g=>g.id===el.dataset.id))return;for(const g of state.goals)g.visible=g.id===el.dataset.id;save();render();},
     'goal-detail':el=>goalDetail(el.dataset.id), 'assets-allocation':()=>navigate('allocation'),
-    'open-salary':()=>navigate('salary'), 'add-salary':()=>salaryForm(), 'edit-salary':el=>salaryForm(el.dataset.year),
+    'open-salary':()=>{salaryFocusYear=null;navigate('salary');}, 'open-salary-year':el=>{salaryFocusYear=Number(el.dataset.year);navigate('salary');document.querySelector(`.salary-detail[data-year="${salaryFocusYear}"]`)?.scrollIntoView({block:'center'});}, 'add-salary':()=>salaryForm(), 'edit-salary':el=>salaryForm(el.dataset.year),
     'delete-salary-confirm':el=>confirm('删除年度工资？','删除这一年的工资记录。','delete-salary',el.dataset.year),
     'delete-salary':el=>{state.salaryYears=state.salaryYears.filter(row=>row.year!==Number(el.dataset.id));save();closeSheet();render();},
     'allocation-edit':el=>allocationForm(el.dataset.id), login:loginSheet,sync,
@@ -568,6 +571,7 @@
     logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
   document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open,.goal-list-item.is-open');if(open&&e.target.closest('.allocation-row,.goal-swipe-content')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('task-option-backdrop')){closeTaskOption();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
+  document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('.salary-chart-point')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
   document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;beginSort(row,e);handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
   document.addEventListener('pointermove',moveSort);
   document.addEventListener('pointerup',e=>{if(sortState&&e.pointerId===sortState.pointerId)finishSort();});
