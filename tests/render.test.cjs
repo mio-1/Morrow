@@ -27,7 +27,7 @@ test('opening after twelve hours requests one automatic sync',async()=>{
   assert.equal(actions[0],'load');
 });
 
-test('asset content stays visible while todo settings remain configurable',async()=>{
+test('asset content stays visible and menu management configures navigation',async()=>{
   const app={innerHTML:''}, overlay={innerHTML:''};
   global.window={HubCore:C,scrollTo(){}};
   global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
@@ -41,7 +41,7 @@ test('asset content stays visible while todo settings remain configurable',async
   assert.ok(!app.innerHTML.includes('data-action="open-trend"'));
   window.shiji.navigate('settings');
   assert.ok(!app.innerHTML.includes('data-action="page-settings" data-id="wealth"'));
-  assert.ok(app.innerHTML.includes('data-action="page-settings" data-id="todos"'));
+  assert.ok(app.innerHTML.includes('data-page="menu-manager"'));
   assert.ok(app.innerHTML.includes('data-page="connections"'));
   assert.ok(!app.innerHTML.includes('data-action="login"'));
   window.shiji.navigate('connections');
@@ -51,9 +51,10 @@ test('asset content stays visible while todo settings remain configurable',async
   assert.ok(app.innerHTML.includes('<h1>小青账</h1>'));
   assert.ok(app.innerHTML.includes('data-action="login"'));
   assert.ok(!app.innerHTML.includes('常用功能'));
-  window.shiji.navigate('module-settings');
-  assert.ok(app.innerHTML.includes('data-module="todos" data-option="completed"'));
-  assert.ok(!app.innerHTML.includes('data-module="wealth"'));
+  window.shiji.navigate('menu-manager');
+  assert.ok(app.innerHTML.includes('data-sort-type="menu" data-sort-id="home"'));
+  assert.ok(app.innerHTML.includes('data-sort-type="menu" data-sort-id="todos"'));
+  assert.ok(app.innerHTML.includes('data-action="toggle-nav-page"'));
   window.shiji.navigate('wealth');
   assert.ok(app.innerHTML.includes('<h1>账户列表</h1>'));
   assert.ok(!app.innerHTML.includes('data-action="wealth-tab"'));
@@ -65,7 +66,6 @@ test('asset content stays visible while todo settings remain configurable',async
   s.pageOptions.wealth.summary=false;s.pageOptions.wealth.accounts=false;s.pageOptions.wealth.goals=false;s.pageOptions.wealth.allocation=false;
   s.pageOptions.allocation.gap=false;s.pageOptions.allocation.progress=false;
   s.pageOptions.goals.monthly=false;
-  s.pageOptions.todos.completed=false;
   s.tasks=[{id:'a',text:'未完成',deadline:'2030-01-01',done:false},{id:'b',text:'已完成',deadline:'2030-01-02',done:true}];
   s.goals=[{id:'g',name:'已达成',amount:1,scope:'all',deadline:'2030-01-01',createdDate:'2026-01-01',visible:false}];
   window.shiji.setState(s);
@@ -90,7 +90,7 @@ test('asset content stays visible while todo settings remain configurable',async
   assert.ok(!app.innerHTML.includes('data-action="move-item"'));
   window.shiji.navigate('todos');
   assert.ok(app.innerHTML.includes('未完成'));
-  assert.ok(!app.innerHTML.includes('已完成'));
+  assert.ok(app.innerHTML.includes('已完成'));
   assert.ok(app.innerHTML.includes('data-date="2030-01-01"'));
   assert.ok(!app.innerHTML.includes('体验示例'));
 });
@@ -104,7 +104,6 @@ test('todos sort by due date and keep only undated active tasks in the library',
   require('../app/src/main/assets/app.js');
   await new Promise(resolve=>setImmediate(resolve));
   const s=C.empty();
-  s.pageOptions.todos.completed=false;
   s.tasks=[
     {id:'late',text:'较晚事项',deadline:'2030-06-10',done:false},
     {id:'undated',text:'还没安排',deadline:'',done:false},
@@ -115,8 +114,9 @@ test('todos sort by due date and keep only undated active tasks in the library',
   window.shiji.navigate('todos');
   assert.ok(app.innerHTML.indexOf('较早事项')<app.innerHTML.indexOf('较晚事项'));
   assert.ok(!app.innerHTML.includes('还没安排'));
-  assert.ok(!app.innerHTML.includes('已经完成'));
-  for(const label of ['添加待办','待办库','待办页面设置']) assert.ok(app.innerHTML.includes(`aria-label="${label}"`));
+  assert.ok(app.innerHTML.includes('已经完成'));
+  for(const label of ['添加待办','待办库']) assert.ok(app.innerHTML.includes(`aria-label="${label}"`));
+  assert.ok(!app.innerHTML.includes('待办页面设置'));
   assert.ok(app.innerHTML.includes('data-action="toggle-task" data-id="early"'));
   assert.ok(app.innerHTML.includes('class="urgency-badge"'));
   window.shiji.navigate('todo-library');
@@ -126,4 +126,5 @@ test('todos sort by due date and keep only undated active tasks in the library',
   assert.ok(!app.innerHTML.includes('较晚事项'));
   assert.ok(!app.innerHTML.includes('已经完成'));
   assert.ok(app.innerHTML.includes('data-action="edit-task" data-id="undated"'));
+  assert.ok(!app.innerHTML.includes('data-action="add-task"'));
 });

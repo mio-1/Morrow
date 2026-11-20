@@ -207,11 +207,12 @@ public class MainActivity extends Activity {
             JSONObject a=raw.getJSONObject(i);
             if (a.getDouble("balance") == 0d) continue;
             String sourceName = a.optString("name", "").trim();
-            if (sourceName.isEmpty()) sourceName = "未命名账户";
-            String remark = a.optString("remark", "").trim();
+            String userName = a.optString("userName", "").trim();
+            String accountName = userName.isEmpty() ? sourceName : userName;
+            if (accountName.isEmpty()) accountName = "未命名账户";
             String bankName = a.optString("bankName",a.optString("bank",a.optString("institutionName",""))).trim();
             JSONObject entry = new JSONObject().put("code",a.getString("code"))
-                .put("name",remark.isEmpty() ? sourceName : remark).put("balance",a.get("balance"))
+                .put("name",accountName).put("balance",a.get("balance"))
                 .put("sourceName",sourceName)
                 .put("bankName",bankName)
                 .put("currency",a.optString("currency", ""))

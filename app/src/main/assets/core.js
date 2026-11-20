@@ -4,9 +4,9 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 15;
+  const SCHEMA = 16;
   const WEALTH_BLOCKS = [
-    {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}, {id:'salary',name:'年工资趋势'}
+    {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}
   ];
   const MODULES = [
     { id: 'wealth', name: '资产统计', shortName: '资产', description: '账户余额与资产变化', icon: 'wallet', page: 'wealth', enabled: true },
@@ -43,7 +43,7 @@
     { id: 'other', name: '其他', color: '#8796ae' }
   ];
   function empty() {
-    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [], salaryYears: [],
+    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), navPages:[{id:'home',visible:true},{id:'todos',visible:true}], goals: [], tasks: [], history: [], salaryYears: [],
       allocationGoals: {},
       modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), accountSort:'amount-desc', lastSync: null, lastSyncAttempt:null, demo: false };
   }
@@ -77,6 +77,10 @@
     }
     const order=Array.isArray(s.wealthOrder)?s.wealthOrder:[];
     s.wealthOrder=[...new Set(order.filter(id=>WEALTH_BLOCKS.some(b=>b.id===id)))].concat(WEALTH_BLOCKS.map(b=>b.id).filter(id=>!order.includes(id)));
+    const nav=Array.isArray(s.navPages)?s.navPages:[];
+    const validNav=nav.filter(row=>row&&['home','todos'].includes(row.id));
+    s.navPages=[...new Map(validNav.map(row=>[row.id,{id:row.id,visible:row.visible!==false}])).values()];
+    for(const id of ['home','todos'])if(!s.navPages.some(row=>row.id===id))s.navPages.push({id,visible:true});
     const savedGoals=s.allocationGoals&&typeof s.allocationGoals==='object'?s.allocationGoals:{};
     const legacyTargets=s.allocationTargets||{};
     const statsBase=s.assets.filter(a=>included(a)&&s.categories.find(c=>c.id===category(s,a))?.statsEnabled!==false).reduce((sum,a)=>sum+Number(a.balance),0);

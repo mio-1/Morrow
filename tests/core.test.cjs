@@ -1,6 +1,12 @@
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const C = require('../app/src/main/assets/core.js');
+
+test('menu pages migrate with unique order and visibility',()=>{
+  assert.deepEqual(C.migrate({}).navPages,[{id:'home',visible:true},{id:'todos',visible:true}]);
+  assert.deepEqual(C.migrate({navPages:[{id:'todos',visible:false},{id:'todos',visible:false},{id:'unknown',visible:false},{id:'home',visible:true}]}).navPages,[{id:'todos',visible:false},{id:'home',visible:true}]);
+  assert.deepEqual(C.migrate({navPages:[{id:'home',visible:false}]}).navPages,[{id:'home',visible:false},{id:'todos',visible:true}]);
+});
 test('todo priority migrates safely and urgency varies smoothly with time and priority',()=>{
   const s=C.migrate({tasks:[{id:'old',text:'旧待办',deadline:'2026-11-20',done:false}]});
   assert.equal(s.tasks[0].priority,'medium');
@@ -127,7 +133,7 @@ test('page content options migrate independently and preserve explicit off choic
 });
 test('asset blocks retain a unique order and migration keeps one current goal',()=>{
   const s=C.migrate({wealthOrder:['allocation','allocation','goals'],goals:[{id:'a',visible:false},{id:'b'}]});
-  assert.deepEqual(s.wealthOrder,['allocation','goals','summary','salary']);
+  assert.deepEqual(s.wealthOrder,['allocation','goals','summary']);
   assert.equal(s.goals[0].visible,false);
   assert.equal(s.goals[1].visible,true);
   const many=C.migrate({version:13,goals:[{id:'first',visible:true},{id:'second',visible:true}]});
