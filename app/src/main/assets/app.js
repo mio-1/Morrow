@@ -3,7 +3,7 @@
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
   let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', salaryFocusYear=null, connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.11',latest:''}, downloadSession=null;
+  let updateState={status:'idle',current:'0.1.12',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -35,7 +35,7 @@
     ['bob','北京银行',/北京银行/i],['bos','上海银行',/上海银行/i]
   ];
   function bankFor(a) { const name=[a.bankName,a.sourceName,a.name].filter(Boolean).join(' ');return BANKS.find(([, ,pattern])=>pattern.test(name)); }
-  function accountBadge(a) { const bank=bankFor(a);return bank?`<img src="bank-logos/${bank[0]}.png" alt="" loading="lazy">`:icon('wallet'); }
+  function accountBadge(a) { const bank=bankFor(a);return bank?`<img src="bank-logos/${bank[0]}.png" alt="" loading="lazy">`:'<svg class="account-default-icon" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="17" fill="#829bbf" stroke="none"/><rect x="9.5" y="11.5" width="17" height="13" rx="3" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M10 16h16M13 21h5" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>'; }
   function bankCardType(a) {
     const source=[a.type,a.sourceName,a.name].filter(Boolean).join(' ');
     if(/信用卡|贷记卡|credit[ _-]?card|\bcredit\b/i.test(source))return '信用卡';
@@ -103,6 +103,8 @@
     const views = { home:homeView, goals:goalsView, wealth:wealthView, allocation:allocationPage, salary:salaryDetailView, settings:settingsView, 'menu-manager':menuManagerView, connections:connectionsView, xiaoqing:xiaoqingView, todos:todosView, 'todo-library':todoLibraryView };
     app.innerHTML = `<main class="shell">
       ${(views[page] || homeView)()}</main><nav class="bottom-nav" aria-label="主导航" style="grid-template-columns:repeat(${tabs.length},1fr)">${tabs.map(t => { const active=t.id===navRoot; return `<button class="nav-item ${active ? 'active' : ''}" data-action="nav" data-page="${t.id}" ${active ? 'aria-current="page"' : ''}>${icon(t.icon)}<span>${t.label}</span></button>`; }).join('')}</nav>`;
+    const salaryChart=app.querySelector?.('.salary-chart-scroll');
+    if(salaryChart) salaryChart.scrollLeft=salaryChart.scrollWidth-salaryChart.clientWidth;
   }
   function title(eyebrow, name, subtitle, button, showBack=false) {
     const back=showBack&&navHistory.length;
@@ -120,16 +122,18 @@
       C.WEALTH_BLOCKS.map(({id})=>`<div class="wealth-block" data-block="${id}">${blocks[id]()}</div>`).join('');
   }
   function homeTrend() {
-    const entries=state.history, change=C.monthChange(state), tone=change>0?'up':change<0?'down':'flat';
+    const official=Array.isArray(state.remoteHistory)&&state.remoteHistory.length>1;
+    const entries=official?state.remoteHistory:state.history, change=official?C.historyMonthChange(entries):C.monthChange(state), tone=change>0?'up':change<0?'down':'flat';
     let chart='<div class="overview-trend-empty">同步几天资产后，这里会出现趋势线</div>';
     if(entries.length>1){
-      const values=entries.map(e=>e.total),low=Math.min(...values),high=Math.max(...values),span=high-low||1;
+      const plotted=entries.length>300?entries.filter((_,i)=>i===0||i===entries.length-1||i%Math.ceil(entries.length/300)===0):entries;
+      const values=plotted.map(e=>e.total),low=Math.min(...values),high=Math.max(...values),span=high-low||1;
       const start=C.dateDay(entries[0].date),days=C.dateDay(entries[entries.length-1].date)-start||1;
-      const points=entries.map(e=>({x:((C.dateDay(e.date)-start)/days*300).toFixed(1),y:(70-(e.total-low)/span*52).toFixed(1)}));
+      const points=plotted.map(e=>({x:((C.dateDay(e.date)-start)/days*300).toFixed(1),y:(70-(e.total-low)/span*52).toFixed(1)}));
       const lines=points.slice(1).map((p,i)=>`<line x1="${points[i].x}" y1="${points[i].y}" x2="${p.x}" y2="${p.y}" stroke="${values[i+1]>values[i]?'#2a9b79':values[i+1]<values[i]?'#e46f72':'#8b9bb3'}" stroke-width="2.7" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`).join('');
       chart=`<svg class="overview-trend-chart" viewBox="0 0 300 88" preserveAspectRatio="none" role="img" aria-label="资产趋势，绿色表示增加，红色表示减少">${lines}</svg><div class="overview-trend-dates"><span>${esc(entries[0].date)}</span><span>${esc(entries[entries.length-1].date)}</span></div>`;
     }
-    return `<div class="card overview-trend"><div class="overview-trend-top"><strong>资产趋势</strong><span>本月 <b class="${tone}">${change==null?'—':change>0?'+'+yuan(change):change<0?'−'+yuan(-change):yuan(0)}</b></span></div>${chart}</div>`;
+    return `<div class="card overview-trend"><div class="overview-trend-top"><strong>资产趋势${official?'<small class="trend-source">小青账</small>':''}</strong><span>本月 <b class="${tone}">${change==null?'—':change>0?'+'+yuan(change):change<0?'−'+yuan(-change):yuan(0)}</b></span></div>${chart}</div>`;
   }
   function wealthWidget() {
     const t=C.totals(state), assets=hasAssets();
@@ -234,7 +238,7 @@
     return title('','设置','') +
       `<section class="settings-section"><h2>页面</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="menu-manager"><span class="row-glyph">${icon('list')}</span><div><h3>菜单管理</h3></div>${icon('arrow')}</button></div></section>` +
       `<section class="settings-section"><h2>连接与数据</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="connections"><span class="row-glyph">${icon('sync')}</span><div><h3>连接管理</h3><p>${connected?'已连接小青账 · 管理外部服务':'管理小青账与其他外部服务'}</p></div>${icon('arrow')}</button></div></section>` +
-      `<section class="settings-section"><h2>应用</h2><button class="update-button ${u.status==='available'?'has-update':''}" data-action="update-action" ${u.status==='checking'||u.status==='downloading'?'disabled':''}><span class="update-button-icon">${icon('sync')}</span><span class="update-button-copy"><strong>${esc(label)}</strong><small>当前版本 v${esc(u.current)}</small></span></button></section>`;
+      `<section class="settings-section"><h2>应用</h2><button class="update-button ${u.status==='available'?'has-update':''} ${u.status==='checking'?'is-checking':''}" data-action="update-action" ${u.status==='checking'||u.status==='downloading'?'disabled':''}><span class="update-button-icon">${icon('sync')}</span><span class="update-button-copy"><strong>${esc(label)}</strong><small>当前版本 v${esc(u.current)}</small></span></button></section>`;
   }
   function menuManagerView() {
     const info={home:{name:'资产',icon:'assets'},todos:{name:'待办',icon:'list'}};
@@ -300,8 +304,9 @@
       `<section class="settings-section"><h2>已支持的服务</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="xiaoqing"><div><h3>小青账</h3><p>${connected?`已连接 · 最近同步 ${syncLabel()}`:'未连接 · 读取资产账户'}</p></div>${icon('arrow')}</button></div><p class="settings-note">以后接入其他服务时，会在这里分别管理。</p></section>`;
   }
   function xiaoqingView() {
+    const trendStatus={ready:'已接入小青账资产变动',empty:'小青账暂未返回资产变动记录','rate-limited':'小青账提示请求频繁，稍后同步再试',unavailable:'资产变动暂不可用，账户同步不受影响',format:'资产变动格式需要适配'}[state.trendStatus]||'下次同步时读取资产变动';
     return title('','小青账','只读同步资产账户。','',true) +
-      `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
+      `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<div class="settings-toggle-row"><div><h3>资产趋势</h3><p>${trendStatus}${state.trendStatus==='format'&&state.trendShape?' · '+esc(state.trendShape):''}</p></div></div><button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
   }
   function dragHandle(type) { return `<button class="sort-handle" data-drag-handle="${type}" aria-label="拖动排序">☷</button>`; }
   function openSheet(titleText, body, dialogClass='') {
@@ -350,9 +355,7 @@
     const form=overlay.querySelector('form[data-form="task"]');if(!form)return;
     form.elements.deadline.value=value;
     form.querySelector('.date-field-button span').textContent=value||'选择日期';
-    form.querySelectorAll('[data-action="task-quick-date"]').forEach(button=>button.classList.toggle('selected',value===taskDateAfter(Number(button.dataset.days))));
-    const editor=form.querySelector('.task-offset-inline');if(editor)editor.hidden=true;
-    form.querySelector('[data-action="task-offset"]')?.setAttribute('aria-expanded','false');
+    form.querySelectorAll('[data-action="task-quick-date"]').forEach(button=>button.classList.toggle('selected',value===(button.dataset.months?taskDateAfterMonths(Number(button.dataset.months)):taskDateAfter(Number(button.dataset.days)))));
   }
   function setTaskDestination(value) {
     const form=overlay.querySelector('form[data-form="task"]');if(!form)return;
@@ -378,7 +381,7 @@
     const task=state.tasks.find(t=>t.id===id);
     const priority=task?.priority||'medium', priorityLabel={low:'低',medium:'中',high:'高'}[priority];
     const destination=task&&!Number.isFinite(C.dateDay(task.deadline))?'library':'schedule';
-    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><input type="hidden" name="destination" value="${destination}"><div class="task-destination" role="group" aria-label="待办位置"><button type="button" class="${destination==='schedule'?'selected':''}" data-action="task-destination" data-value="schedule" aria-pressed="${destination==='schedule'}">安排日期</button><button type="button" class="${destination==='library'?'selected':''}" data-action="task-destination" data-value="library" aria-pressed="${destination==='library'}">加入待办库</button></div><div class="task-schedule" ${destination==='library'?'hidden':''}>${dateField('待完成日期',task?.deadline)}<div class="task-quick-dates">${[[1,'明天'],[3,'3天后'],[7,'1周后'],[14,'2周后']].map(([days,label])=>`<button type="button" data-action="task-quick-date" data-days="${days}">${label}</button>`).join('')}<button type="button" data-action="task-offset" aria-expanded="false">自定义</button></div><div class="task-offset-inline" hidden><div class="task-offset-number"><input data-task-offset-count type="text" inputmode="numeric" maxlength="4" value="1" aria-label="自定义时间数量"><span>后完成</span></div><div class="task-offset-units" role="group" aria-label="时间单位"><button type="button" class="selected" data-action="task-offset-unit" data-unit="day" aria-pressed="true">天</button><button type="button" data-action="task-offset-unit" data-unit="week" aria-pressed="false">周</button><button type="button" data-action="task-offset-unit" data-unit="month" aria-pressed="false">月</button></div><div class="task-offset-error" role="alert"></div><button type="button" class="task-offset-apply" data-action="apply-task-offset">使用这个日期</button></div></div><div class="form-field task-priority-field"><span>优先级</span><input type="hidden" name="priority" value="${priority}"><button type="button" class="task-priority-button" data-action="task-priority" aria-label="选择优先级，当前${priorityLabel}"><span>${priorityLabel}</span>${icon('arrow')}</button></div><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
+    openSheet(task?'编辑待办':'添加待办',`<form data-form="task" ${task?`data-id="${esc(task.id)}"`:''}><label class="form-field"><span>待办内容</span><input name="text" maxlength="140" value="${esc(task?.text||'')}" placeholder="要做的事" required></label><input type="hidden" name="destination" value="${destination}"><div class="task-destination" role="group" aria-label="待办位置"><button type="button" class="${destination==='schedule'?'selected':''}" data-action="task-destination" data-value="schedule" aria-pressed="${destination==='schedule'}">安排日期</button><button type="button" class="${destination==='library'?'selected':''}" data-action="task-destination" data-value="library" aria-pressed="${destination==='library'}">加入待办库</button></div><div class="task-schedule" ${destination==='library'?'hidden':''}>${dateField('待完成日期',task?.deadline)}<div class="task-quick-dates">${[[1,'明天'],[3,'3天后'],[7,'1周后'],[14,'2周后']].map(([days,label])=>`<button type="button" data-action="task-quick-date" data-days="${days}">${label}</button>`).join('')}<button type="button" data-action="task-quick-date" data-months="1">1月后</button></div></div><div class="form-field task-priority-field"><span>优先级</span><input type="hidden" name="priority" value="${priority}"><button type="button" class="task-priority-button" data-action="task-priority" aria-label="选择优先级，当前${priorityLabel}"><span>${priorityLabel}</span>${icon('arrow')}</button></div><div class="form-error" role="alert"></div><button class="primary full" type="submit">${task?'保存修改':'添加待办'}</button></form>${task?`<button class="task-delete-action" data-action="delete-task" data-id="${esc(task.id)}">删除待办</button>`:''}`,'task-dialog');
   }
   function goalForm(id) {
     const g=state.goals.find(g=>g.id===id), date=new Date();date.setFullYear(date.getFullYear()+1);
@@ -412,6 +415,15 @@
     if(!result.ok){if(result.expired)connected=false;if(result.connected)connected=true;throw new Error(result.error||'同步未完成');}
     const accounts=(result.accounts||[]).filter(a=>Number(a.balance)!==0);
     state.assets=state.assets.filter(a=>a.source==='manual').concat(accounts);
+    if(result.trendData){
+      const remote=C.normalizeAssetTrend(result.trendData);
+      if(remote.length>1){state.remoteHistory=remote;state.trendStatus='ready';state.trendShape='';}
+      else {
+        const data=result.trendData,rows=Array.isArray(data)?data:Array.isArray(data?.list)?data.list:Array.isArray(data?.records)?data.records:Array.isArray(data?.data)?data.data:null;
+        state.trendStatus=rows?.length?'format':'empty';
+        state.trendShape=state.trendStatus==='format'?Object.keys(rows[0]||{}).slice(0,12).join(', ').slice(0,160):'';
+      }
+    }else if(result.trendStatus)state.trendStatus=result.trendStatus;
     state.lastSync=new Date(result.syncedAt).toISOString();state.lastSyncAttempt=state.lastSync;connected=true;
     initializeBaselines();C.recordSnapshot(state);save();
   }
@@ -529,14 +541,11 @@
     'date-month':el=>{const d=new Date(datePicker.year,datePicker.month-1+Number(el.dataset.step),1);datePicker.year=d.getFullYear();datePicker.month=d.getMonth()+1;renderDatePicker();},
     'select-day':el=>{const p=datePicker,value=`${p.year}-${String(p.month).padStart(2,'0')}-${String(el.dataset.day).padStart(2,'0')}`;if(p.button.closest('form').dataset.form==='task')setTaskDeadline(value);else{p.input.value=value;p.button.querySelector('span').textContent=value;}closeDatePicker();},
     'clear-date':()=>{if(datePicker.button.closest('form').dataset.form==='task')setTaskDeadline('');else{datePicker.input.value='';datePicker.button.querySelector('span').textContent='选择日期';}closeDatePicker();},
-    'task-quick-date':el=>setTaskDeadline(taskDateAfter(Number(el.dataset.days))),
+    'task-quick-date':el=>setTaskDeadline(el.dataset.months?taskDateAfterMonths(Number(el.dataset.months)):taskDateAfter(Number(el.dataset.days))),
     'task-destination':el=>setTaskDestination(el.dataset.value),
-    'task-offset':el=>{const editor=el.closest('form').querySelector('.task-offset-inline');editor.hidden=!editor.hidden;el.setAttribute('aria-expanded',String(!editor.hidden));if(!editor.hidden)editor.querySelector('[data-task-offset-count]').focus();},
     'task-priority':()=>taskOption('priority'),
     'close-task-option':closeTaskOption,
     'select-task-priority':el=>{const form=overlay.querySelector('form[data-form="task"]');if(!form||!['low','medium','high'].includes(el.dataset.value))return;form.elements.priority.value=el.dataset.value;const label={low:'低',medium:'中',high:'高'}[el.dataset.value];form.querySelector('.task-priority-button span').textContent=label;form.querySelector('.task-priority-button').setAttribute('aria-label',`选择优先级，当前${label}`);closeTaskOption();},
-    'task-offset-unit':el=>{el.parentElement.querySelectorAll('button').forEach(button=>{const selected=button===el;button.classList.toggle('selected',selected);button.setAttribute('aria-pressed',String(selected));});},
-    'apply-task-offset':el=>{const editor=el.closest('.task-offset-inline'),raw=editor.querySelector('[data-task-offset-count]').value.trim(),unit=editor.querySelector('.task-offset-units .selected')?.dataset.unit,count=Number(raw),max=unit==='month'?120:unit==='week'?520:3650;if(!/^\d+$/.test(raw)||!Number.isInteger(count)||count<1||count>max){editor.querySelector('.task-offset-error').textContent=`请输入 1 至 ${max} ${unit==='month'?'月':unit==='week'?'周':'天'}`;return;}editor.querySelector('.task-offset-error').textContent='';setTaskDeadline(unit==='month'?taskDateAfterMonths(count):taskDateAfter(count*(unit==='week'?7:1)));},
     'update-action':()=>updateState.status==='available'?downloadUpdate():checkUpdate(),
     'cancel-update':cancelUpdate,
     'open-all-goals':()=>navigate('goals'), 'add-goal':()=>goalForm(), 'edit-goal':el=>goalForm(el.dataset.id),
@@ -568,7 +577,7 @@
     'delete-task-now':el=>{state.tasks=state.tasks.filter(t=>t.id!==el.dataset.id);save();closeSheet();render();},
     rename:()=>openSheet('给这个空间起个名字',`<form data-form="rename"><label class="form-field"><span>应用内名称</span><input name="name" maxlength="12" value="${esc(state.name)}" required><small>修改界面里的名称，不影响桌面图标名称。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存名称</button></form>`),
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
-    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
+    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
   document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open,.goal-list-item.is-open');if(open&&e.target.closest('.allocation-row,.goal-swipe-content')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('task-option-backdrop')){closeTaskOption();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
   document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('.salary-chart-point')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
@@ -609,7 +618,7 @@
       state.allocationGoals[id]={target};save();closeSheet();render();toast('类别目标已保存');
     }else if(type==='task'){
       if(!data.text.trim()){formError('请填写待办内容');return;}
-      const deadline=data.destination==='library'?'':data.deadline;
+      const deadline=data.destination==='library'?'':form.elements.deadline.value;
       if(data.destination!=='library'&&!Number.isFinite(C.dateDay(deadline))){formError('请选择完成日期或加入待办库');return;}
       const task=state.tasks.find(t=>t.id===form.dataset.id), priority=['low','medium','high'].includes(data.priority)?data.priority:'medium';
       if(task){task.text=data.text.trim();task.deadline=deadline;task.priority=priority;}else state.tasks.push({id:uid(),text:data.text.trim(),deadline,priority,done:false});
@@ -631,7 +640,7 @@
     }else if(type==='login'){
       if(state.demo){formError('请先退出示例模式，再连接真实账户');return;}
       if(busy)return;busy=true;state.lastSyncAttempt=new Date().toISOString();save();const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='正在登录并读取资产…';
-      try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';applySync(result);closeSheet();}
+      try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';if(result.ok){state.remoteHistory=[];state.trendStatus='';state.trendShape='';}applySync(result);closeSheet();}
       catch(err){formError(err.message);}
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
     }
@@ -639,5 +648,6 @@
   window.hubBack=goBack;
   // Small explicit interface for browser QA, never exposes native credentials.
   window.shiji={get state(){return state;}, setState:s=>{state=C.migrate(s);render();},render,navigate,openGoal:goalForm};
-  call('load').then(result=>{if(result.ok){const hadZeroAssets=Array.isArray(result.state?.assets)&&result.state.assets.some(a=>a?.source==='xiaoqing'&&Number(a.balance)===0),migrated=Number(result.state?.version||0)<C.SCHEMA;state=C.migrate(result.state);connected=!!result.connected;updateState.current=result.currentVersion||updateState.current;if(hadZeroAssets||migrated)save();}else toast(result.error);render();if(connected&&C.autoSyncDue(state))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});
+  const bootStarted=Date.now();
+  call('load').then(async result=>{const remaining=900-(Date.now()-bootStarted);if(remaining>0)await new Promise(resolve=>setTimeout(resolve,remaining));if(result.ok){const hadZeroAssets=Array.isArray(result.state?.assets)&&result.state.assets.some(a=>a?.source==='xiaoqing'&&Number(a.balance)===0),migrated=Number(result.state?.version||0)<C.SCHEMA;state=C.migrate(result.state);connected=!!result.connected;updateState.current=result.currentVersion||updateState.current;if(hadZeroAssets||migrated)save();}else toast(result.error);render();if(connected&&C.autoSyncDue(state))sync();}).catch(()=>{render();toast('读取本地数据失败，请重新打开 App');});
 })();

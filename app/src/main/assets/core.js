@@ -43,7 +43,7 @@
     { id: 'other', name: '其他', color: '#8796ae' }
   ];
   function empty() {
-    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), navPages:[{id:'home',visible:true},{id:'todos',visible:true}], goals: [], tasks: [], history: [], salaryYears: [],
+    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), navPages:[{id:'home',visible:true},{id:'todos',visible:true}], goals: [], tasks: [], history: [], remoteHistory: [], salaryYears: [],
       allocationGoals: {},
       modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), accountSort:'amount-desc', lastSync: null, lastSyncAttempt:null, demo: false };
   }
@@ -51,6 +51,7 @@
     const s = Object.assign(empty(), value || {});
     if (!['amount-desc','amount-asc','original'].includes(s.accountSort)) s.accountSort='amount-desc';
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
+    s.remoteHistory=normalizeAssetTrend(s.remoteHistory,true);
     const salaryByYear=new Map();
     for(const row of Array.isArray(s.salaryYears)?s.salaryYears:[]){
       const year=Number(row?.year),bonus=Number(row?.bonus),dividend=Number(row?.dividend);
@@ -191,9 +192,35 @@
     s.history = s.history.filter(h => h.date !== date).concat(entry).sort((a, b) => dateDay(a.date) - dateDay(b.date));
     return entry;
   }
+  function normalizeAssetTrend(payload,stored=false) {
+    let rows=payload;
+    for(let depth=0;depth<3&&!Array.isArray(rows)&&rows&&typeof rows==='object';depth++)
+      rows=['list','records','rows','items','data','content'].map(key=>rows[key]).find(value=>Array.isArray(value)||value&&typeof value==='object');
+    if(!Array.isArray(rows)||rows.length>5000)return [];
+    const sample=rows.find(row=>row&&typeof row==='object'&&!Array.isArray(row));
+    if(!sample)return [];
+    const valueKey=['totalAsset','totalAssets','grossAssets','assetTotal','totalMoney','netAsset','netAssets',...(stored?['total']:[])].find(key=>Object.hasOwn(sample,key));
+    const dateKey=['date','changeDate','recordDate','createTime','createdAt','time','day'].find(key=>Object.hasOwn(sample,key));
+    if(!valueKey||!dateKey)return [];
+    const byDate=new Map();
+    for(const row of rows){
+      if(!row||typeof row!=='object'||Array.isArray(row))continue;
+      const rawDate=row[dateKey],rawValue=row[valueKey];
+      let date='';
+      if(typeof rawDate==='string')date=rawDate.slice(0,10).replaceAll('/','-');
+      else if(typeof rawDate==='number'&&Number.isFinite(rawDate)){const d=new Date(rawDate<1e11?rawDate*1000:rawDate);if(Number.isFinite(d.getTime()))date=today(d);}
+      const total=typeof rawValue==='number'?rawValue:typeof rawValue==='string'&&/^-?\d+(?:\.\d+)?$/.test(rawValue.trim())?Number(rawValue):NaN;
+      if(Number.isFinite(dateDay(date))&&Number.isFinite(total)&&Math.abs(total)<=1e12)byDate.set(date,{date,total:round(total)});
+    }
+    return [...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
+  }
   function monthChange(s, date = today()) {
     const start = date.slice(0, 7) + '-01', before = s.history.filter(h => h.date <= start).sort((a,b) => a.date.localeCompare(b.date)).pop();
     return before && dateDay(start)-dateDay(before.date)<=1 ? round(totals(s).total - before.total) : null;
+  }
+  function historyMonthChange(entries, date = today()) {
+    const start=date.slice(0,7)+'-01', before=entries.filter(h=>h.date<=start).pop(), latest=entries.filter(h=>h.date<=date).pop();
+    return before&&latest&&dateDay(start)-dateDay(before.date)<=1?round(latest.total-before.total):null;
   }
   function validateGoal(g) {
     if (!String(g.name || '').trim()) return '请填写目标名称';
@@ -219,5 +246,5 @@
     return s;
   }
   return { SCHEMA, WEALTH_BLOCKS, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, autoSyncDue, dateDay, taskUrgency,
-    goalValue, goalMetrics, allocation, annualSalary, recordSnapshot, monthChange, validateGoal, demo };
+    goalValue, goalMetrics, allocation, annualSalary, recordSnapshot, normalizeAssetTrend, monthChange, historyMonthChange, validateGoal, demo };
 });

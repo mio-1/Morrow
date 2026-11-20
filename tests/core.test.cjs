@@ -178,3 +178,23 @@ test('old percentage targets become fixed amounts using participating assets at 
   assert.equal(upgraded.allocationMode,undefined);
   assert.equal(upgraded.allocationTargets,undefined);
 });
+
+test('Xiaoqing asset trend accepts dated totals and preserves them across reload',()=>{
+  const data={data:{records:[
+    {changeDate:'2026-11-02',totalAsset:'12000.15'},
+    {changeDate:'2026-11-01',totalAsset:'10000'},
+    {changeDate:'2026-11-02',totalAsset:'12050.15'},
+    {changeDate:'2026-02-30',totalAsset:'50000'}
+  ]}};
+  const trend=C.normalizeAssetTrend(data);
+  assert.deepEqual(trend,[{date:'2026-11-01',total:10000},{date:'2026-11-02',total:12050.15}]);
+  assert.deepEqual(C.migrate({remoteHistory:trend}).remoteHistory,trend);
+  assert.equal(C.historyMonthChange(trend,'2026-11-02'),2050.15);
+  assert.equal(C.historyMonthChange(trend,'2026-12-02'),null);
+});
+test('Xiaoqing asset trend rejects transaction deltas and malformed balances',()=>{
+  assert.deepEqual(C.normalizeAssetTrend([{date:'2026-11-01',changeAmount:200}]),[]);
+  assert.deepEqual(C.normalizeAssetTrend([{date:'2026-11-01',totalAsset:'NaN'}]),[]);
+  assert.deepEqual(C.normalizeAssetTrend([{date:'2026-11-01',totalAsset:'9999999999999'}]),[]);
+  assert.deepEqual(C.normalizeAssetTrend({list:[]}),[]);
+});

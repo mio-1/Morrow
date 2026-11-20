@@ -222,7 +222,17 @@ public class MainActivity extends Activity {
                 .put("source","xiaoqing");
             accounts.put(entry);
         }
-        return ok().put("accounts", accounts).put("syncedAt",System.currentTimeMillis());
+        JSONObject result = ok().put("accounts", accounts).put("syncedAt",System.currentTimeMillis());
+        try {
+            // This read is independent of the account list: a history failure must not discard balances.
+            JSONObject history = http("/bill/asset-change/listAll", null, token);
+            if (history.optBoolean("succ", false)) {
+                Object data = history.opt("data");
+                if (data instanceof JSONArray || data instanceof JSONObject) result.put("trendData", data);
+                else result.put("trendStatus", "empty");
+            } else result.put("trendStatus", rateLimited(history) ? "rate-limited" : "unavailable");
+        } catch (Exception ignored) { result.put("trendStatus", "unavailable"); }
+        return result;
     }
 
     private boolean rateLimited(JSONObject response) {

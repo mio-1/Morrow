@@ -10,7 +10,7 @@ test('opening a recently synced app reads local state without requesting a sync'
   global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
   delete require.cache[require.resolve('../app/src/main/assets/app.js')];
   require('../app/src/main/assets/app.js');
-  await new Promise(resolve=>setTimeout(resolve,20));
+  await new Promise(resolve=>setTimeout(resolve,950));
   assert.deepEqual(actions,['load']);
 });
 
@@ -22,7 +22,7 @@ test('opening after twelve hours requests one automatic sync',async()=>{
   global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
   delete require.cache[require.resolve('../app/src/main/assets/app.js')];
   require('../app/src/main/assets/app.js');
-  await new Promise(resolve=>setTimeout(resolve,30));
+  await new Promise(resolve=>setTimeout(resolve,950));
   assert.equal(actions.filter(action=>action==='sync').length,1);
   assert.equal(actions[0],'load');
 });
