@@ -198,3 +198,15 @@ test('Xiaoqing asset trend rejects transaction deltas and malformed balances',()
   assert.deepEqual(C.normalizeAssetTrend([{date:'2026-11-01',totalAsset:'9999999999999'}]),[]);
   assert.deepEqual(C.normalizeAssetTrend({list:[]}),[]);
 });
+test('Xiaoqing asset-change balances use the latest RMB snapshot each day',()=>{
+  const data={records:[
+    {type:'increase',balance:'12050.15',currency:'RMB',createTime:'2026-11-02 18:00:00'},
+    {type:'increase',balance:'10000',currency:'RMB',createTime:'2026-11-01 09:00:00'},
+    {type:'decrease',balance:'12000',currency:'RMB',createTime:'2026-11-02 08:00:00'},
+    {type:'increase',balance:'99999',currency:'USD',createTime:'2026-11-02 20:00:00'}
+  ]};
+  assert.deepEqual(C.normalizeAssetTrend(data),[
+    {date:'2026-11-01',total:10000},
+    {date:'2026-11-02',total:12050.15}
+  ]);
+});

@@ -516,6 +516,7 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .salary-month-field span { display:block; margin-bottom:6px; color:#708098; font-size:10px; }
 .salary-month-field input { width:100%; min-width:0; padding:0; border:0; outline:none; background:transparent; color:var(--ink); font-size:12px; font-variant-numeric:tabular-nums; }
 .salary-month-field input::placeholder { color:#c1c9d5; }
+input:focus::placeholder, textarea:focus::placeholder { color:transparent; }
 .salary-extras { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:19px; }
 .salary-extras .form-field { min-width:0; }
 .salary-extras .form-field input { min-height:42px; padding:10px; }

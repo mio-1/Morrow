@@ -199,12 +199,14 @@
     if(!Array.isArray(rows)||rows.length>5000)return [];
     const sample=rows.find(row=>row&&typeof row==='object'&&!Array.isArray(row));
     if(!sample)return [];
-    const valueKey=['totalAsset','totalAssets','grossAssets','assetTotal','totalMoney','netAsset','netAssets',...(stored?['total']:[])].find(key=>Object.hasOwn(sample,key));
+    const valueKey=['totalAsset','totalAssets','grossAssets','assetTotal','totalMoney','netAsset','netAssets',...(stored?['total']:['balance'])].find(key=>Object.hasOwn(sample,key));
     const dateKey=['date','changeDate','recordDate','createTime','createdAt','time','day'].find(key=>Object.hasOwn(sample,key));
     if(!valueKey||!dateKey)return [];
     const byDate=new Map();
-    for(const row of rows){
+    const ordered=valueKey==='balance'?[...rows].sort((a,b)=>String(a?.[dateKey]??'').localeCompare(String(b?.[dateKey]??''))):rows;
+    for(const row of ordered){
       if(!row||typeof row!=='object'||Array.isArray(row))continue;
+      if(valueKey==='balance'&&row.currency&&!['RMB','CNY'].includes(String(row.currency).toUpperCase()))continue;
       const rawDate=row[dateKey],rawValue=row[valueKey];
       let date='';
       if(typeof rawDate==='string')date=rawDate.slice(0,10).replaceAll('/','-');
