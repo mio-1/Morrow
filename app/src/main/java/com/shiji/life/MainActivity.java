@@ -230,7 +230,11 @@ public class MainActivity extends Activity {
                 Object data = history.opt("data");
                 if (data instanceof JSONArray || data instanceof JSONObject) result.put("trendData", data);
                 else result.put("trendStatus", "empty");
-            } else result.put("trendStatus", rateLimited(history) ? "rate-limited" : "unavailable");
+            } else {
+                String code = history.optString("code", "");
+                result.put("trendStatus", rateLimited(history) ? "rate-limited" : "CLOUD-ILLEGAL_REQUEST".equals(code) ? "rejected" : "unavailable");
+                if (code.matches("[A-Z0-9_-]{1,64}")) result.put("trendCode", code);
+            }
         } catch (Exception ignored) { result.put("trendStatus", "unavailable"); }
         return result;
     }

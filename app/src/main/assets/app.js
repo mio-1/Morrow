@@ -3,7 +3,7 @@
   const C = window.HubCore, app = document.getElementById('app'), overlay = document.getElementById('overlay');
   const native = !!window.NativeHub, pending = new Map();
   let state = C.empty(), page = 'home', navRoot='home', navHistory=[], goalFilter='all', salaryFocusYear=null, connected = false, busy = false, toastTimer, nextId = 0, datePicker = null, sortState=null, swipeState=null, longPressState=null, colorDrag=null, suppressSwipeClick=false;
-  let updateState={status:'idle',current:'0.1.12',latest:''}, downloadSession=null;
+  let updateState={status:'idle',current:'0.1.13',latest:''}, downloadSession=null;
   const paths = {
     home:'M3 10l9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z',
     flag:'M5 22V3m0 1c5-4 9 4 14 0v10c-5 4-9-4-14 0',
@@ -304,11 +304,10 @@
       `<section class="settings-section"><h2>已支持的服务</h2><div class="settings-group"><button class="settings-row" data-action="nav" data-page="xiaoqing"><div><h3>小青账</h3><p>${connected?`已连接 · 最近同步 ${syncLabel()}`:'未连接 · 读取资产账户'}</p></div>${icon('arrow')}</button></div><p class="settings-note">以后接入其他服务时，会在这里分别管理。</p></section>`;
   }
   function xiaoqingView() {
-    const trendStatus={ready:'已接入小青账资产变动',empty:'小青账暂未返回资产变动记录','rate-limited':'小青账提示请求频繁，稍后同步再试',unavailable:'资产变动暂不可用，账户同步不受影响',format:'资产变动格式需要适配'}[state.trendStatus]||'下次同步时读取资产变动';
+    const trendStatus={ready:'已接入小青账资产变动',empty:'小青账暂未返回资产变动记录','rate-limited':'小青账提示请求频繁，稍后同步再试',rejected:'小青账拒绝了资产变动请求',unavailable:'资产变动暂不可用，账户同步不受影响',format:'资产变动格式需要适配'}[state.trendStatus]||'下次同步时读取资产变动';
     return title('','小青账','只读同步资产账户。','',true) +
-      `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<div class="settings-toggle-row"><div><h3>资产趋势</h3><p>${trendStatus}${state.trendStatus==='format'&&state.trendShape?' · '+esc(state.trendShape):''}</p></div></div><button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
+      `<section class="settings-section"><h2>连接状态</h2><div class="settings-group"><div class="settings-toggle-row"><div><h3>${connected?'已连接':'未连接'}</h3><p>${connected?`最近同步 ${syncLabel()}`:'连接后可将资产账户用于统计与目标进度'}</p></div><span class="chip ${connected?'green':'gray'}">${connected?'已连接':'未连接'}</span></div>${connected?`<div class="settings-toggle-row xiaoqing-trend-status"><div><h3>资产趋势</h3><p>${trendStatus}${state.trendStatus==='format'&&state.trendShape?' · '+esc(state.trendShape):''}${state.trendCode?' · '+esc(state.trendCode):''}</p></div></div><button class="settings-row" data-action="sync"><div><h3>同步资产</h3><p>读取小青账最新账户余额</p></div>${icon('sync')}</button><button class="settings-row" data-action="login"><div><h3>重新登录</h3><p>更新连接凭证</p></div>${icon('arrow')}</button><button class="settings-row danger" data-action="logout-confirm"><div><h3>断开连接</h3><p>清除令牌与同步缓存，保留目标和待办</p></div>${icon('arrow')}</button>`:`<button class="settings-row" data-action="login"><div><h3>连接小青账</h3><p>使用手机号和密码登录</p></div>${icon('arrow')}</button>`}</div></section>`;
   }
-  function dragHandle(type) { return `<button class="sort-handle" data-drag-handle="${type}" aria-label="拖动排序">☷</button>`; }
   function openSheet(titleText, body, dialogClass='') {
     datePicker=null;
     overlay.innerHTML = `<div class="backdrop ${esc(dialogClass)}"><section class="sheet" role="dialog" aria-modal="true" aria-label="${esc(titleText)}"><div class="handle"></div><div class="sheet-head"><h2>${esc(titleText)}</h2><button class="icon-btn" aria-label="关闭" data-action="close">${icon('close')}</button></div>${body}</section></div>`;
@@ -417,13 +416,14 @@
     state.assets=state.assets.filter(a=>a.source==='manual').concat(accounts);
     if(result.trendData){
       const remote=C.normalizeAssetTrend(result.trendData);
-      if(remote.length>1){state.remoteHistory=remote;state.trendStatus='ready';state.trendShape='';}
+      if(remote.length>1){state.remoteHistory=remote;state.trendStatus='ready';state.trendShape='';state.trendCode='';}
       else {
         const data=result.trendData,rows=Array.isArray(data)?data:Array.isArray(data?.list)?data.list:Array.isArray(data?.records)?data.records:Array.isArray(data?.data)?data.data:null;
         state.trendStatus=rows?.length?'format':'empty';
         state.trendShape=state.trendStatus==='format'?Object.keys(rows[0]||{}).slice(0,12).join(', ').slice(0,160):'';
       }
     }else if(result.trendStatus)state.trendStatus=result.trendStatus;
+    state.trendCode=typeof result.trendCode==='string'&&/^[A-Z0-9_-]{1,64}$/.test(result.trendCode)?result.trendCode:'';
     state.lastSync=new Date(result.syncedAt).toISOString();state.lastSyncAttempt=state.lastSync;connected=true;
     initializeBaselines();C.recordSnapshot(state);save();
   }
@@ -488,7 +488,7 @@
     const slots=list.map((x,i)=>visible.has(key(x))?i:-1).filter(i=>i>=0);
     if(slots.length!==ids.length)return;
     let changed=false;slots.forEach((slot,i)=>{if(key(list[slot])!==ids[i])changed=true;list[slot]=byId.get(ids[i]);});
-    if(changed)save();render();
+    if(changed){save();if(type==='menu')render();}
   }
   function beginSort(item,e) {
     const type=item.dataset.sortType, selector=type==='goal'?'.goal-list-item':type==='menu'?'.menu-page-item':'.allocation-item';
@@ -496,23 +496,42 @@
     ghost.classList.add('sort-ghost');ghost.classList.remove('is-open','is-swiping');
     Object.assign(ghost.style,{left:`${rect.left}px`,top:`${rect.top}px`,width:`${rect.width}px`,height:`${rect.height}px`});
     document.body.appendChild(ghost);item.classList.add('sort-placeholder');
-    sortState={item,ghost,type,selector,pointerId:e.pointerId,startY:e.clientY,offsetX:e.clientX-rect.left,offsetY:e.clientY-rect.top,parent:item.parentElement};
+    sortState={item,ghost,type,selector,pointerId:e.pointerId,clientX:e.clientX,clientY:e.clientY,
+      originX:rect.left,originY:rect.top,offsetX:e.clientX-rect.left,offsetY:e.clientY-rect.top,
+      parent:item.parentElement,frame:0};
+    try{ghost.setPointerCapture(e.pointerId);}catch{}
     suppressSwipeClick=true;
+  }
+  function paintSort(allowScroll=true) {
+    const s=sortState;if(!s)return;s.frame=0;
+    s.ghost.style.transform=`translate3d(${s.clientX-s.offsetX-s.originX}px,${s.clientY-s.offsetY-s.originY}px,0) scale(1.015)`;
+    if(allowScroll){
+      const edge=64, speed=s.clientY<edge?-Math.min(16,(edge-s.clientY)/3):s.clientY>innerHeight-edge?Math.min(16,(s.clientY-innerHeight+edge)/3):0;
+      if(speed){const top=document.scrollingElement.scrollTop;window.scrollBy(0,speed);if(document.scrollingElement.scrollTop!==top)s.frame=requestAnimationFrame(()=>paintSort());}
+    }
+    const siblings=[...s.parent.querySelectorAll(`:scope > ${s.selector}`)].filter(el=>el!==s.item);
+    if(!siblings.length)return;
+    const before=siblings.find(el=>{
+      const anchor=el.querySelector('.allocation-row-title,.goal-top,.menu-page-title')||el;
+      const r=anchor.getBoundingClientRect(), earlier=!!(el.compareDocumentPosition(s.item)&Node.DOCUMENT_POSITION_FOLLOWING);
+      return s.clientY<r.top+r.height/2+(earlier?8:-8);
+    });
+    if(before?s.item.nextElementSibling===before:s.item===s.parent.lastElementChild)return;
+    const positions=new Map(siblings.map(el=>[el,el.getBoundingClientRect().top]));
+    if(before)before.before(s.item);else s.parent.append(s.item);
+    if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches)for(const el of siblings){const delta=positions.get(el)-el.getBoundingClientRect().top;if(Math.abs(delta)>1){el._sortAnimation?.cancel();el._sortAnimation=el.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:150,easing:'cubic-bezier(.2,.8,.2,1)'});}}
   }
   function moveSort(e) {
     const s=sortState;if(!s||e.pointerId!==s.pointerId)return;
-    s.ghost.style.left=`${e.clientX-s.offsetX}px`;s.ghost.style.top=`${e.clientY-s.offsetY}px`;
-    const siblings=[...s.parent.querySelectorAll(`:scope > ${s.selector}`)].filter(el=>el!==s.item);
-    if(!siblings.length)return;
-    const positions=new Map(siblings.map(el=>[el,el.getBoundingClientRect().top]));
-    const hovered=siblings.find(el=>{const r=el.getBoundingClientRect();return e.clientY>=r.top&&e.clientY<=r.bottom;});
-    if(hovered){if(e.clientY>=s.startY)hovered.after(s.item);else hovered.before(s.item);}
-    else {const next=siblings.find(el=>e.clientY<el.getBoundingClientRect().top);if(next)next.before(s.item);else siblings[siblings.length-1].after(s.item);}
-    if(!window.matchMedia('(prefers-reduced-motion: reduce)').matches)for(const el of siblings){const delta=positions.get(el)-el.getBoundingClientRect().top;if(Math.abs(delta)>1){el._sortAnimation?.cancel();el._sortAnimation=el.animate([{transform:`translateY(${delta}px)`},{transform:'translateY(0)'}],{duration:180,easing:'cubic-bezier(.2,.8,.2,1)'});}}
+    s.clientX=e.clientX;s.clientY=e.clientY;
+    if(!s.frame)s.frame=requestAnimationFrame(()=>paintSort());
     e.preventDefault();
   }
   function finishSort(cancel=false) {
-    const s=sortState;if(!s)return;sortState=null;s.ghost.remove();s.item.classList.remove('sort-placeholder');
+    const s=sortState;if(!s)return;
+    if(s.frame)cancelAnimationFrame(s.frame);
+    if(!cancel)paintSort(false);
+    sortState=null;s.ghost.remove();s.item.classList.remove('sort-placeholder');
     const ids=[...s.parent.querySelectorAll(`:scope > ${s.selector}`)].map(el=>el.dataset.sortId);
     suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);
     if(cancel)render();else commitSort(s.type,ids);
@@ -575,13 +594,11 @@
     'toggle-task':el=>{const t=state.tasks.find(t=>t.id===el.dataset.id);if(!t)return;t.done=!t.done;save();render();toast(t.done?'已完成':'已恢复');},
     'delete-task':el=>confirm('删除这条待办？','删除后无法恢复。','delete-task-now',el.dataset.id),
     'delete-task-now':el=>{state.tasks=state.tasks.filter(t=>t.id!==el.dataset.id);save();closeSheet();render();},
-    rename:()=>openSheet('给这个空间起个名字',`<form data-form="rename"><label class="form-field"><span>应用内名称</span><input name="name" maxlength="12" value="${esc(state.name)}" required><small>修改界面里的名称，不影响桌面图标名称。</small></label><div class="form-error" role="alert"></div><button class="primary full" type="submit">保存名称</button></form>`),
     'logout-confirm':()=>confirm('断开小青账？','清除这台设备的登录令牌、同步资产和快照。保留目标、资产分类与待办。','logout'),
-    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
+    logout:async()=>{const r=await call('logout');if(!r.ok){toast(r.error);return;}connected=false;state.assets=state.assets.filter(a=>a.source==='manual');state.history=[];state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.trendCode='';state.lastSync=null;state.lastSyncAttempt=null;if(state.assets.length)C.recordSnapshot(state);save();closeSheet();render();toast('已断开连接');}
   };
   document.addEventListener('click',e=>{if(suppressSwipeClick&&e.isTrusted){e.preventDefault();suppressSwipeClick=false;return;}const open=e.target.closest('.allocation-item.is-open,.goal-list-item.is-open');if(open&&e.target.closest('.allocation-row,.goal-swipe-content')){open.classList.remove('is-open');return;}if(e.target.classList.contains('date-picker-backdrop')){closeDatePicker();return;}if(e.target.classList.contains('task-option-backdrop')){closeTaskOption();return;}if(e.target.classList.contains('backdrop')){if(downloadSession)cancelUpdate();else closeSheet();return;}const el=e.target.closest('[data-action]');if(!el||el.disabled)return;const handler=handlers[el.dataset.action];if(handler)Promise.resolve(handler(el)).catch(err=>toast(err.message||'操作未完成，请重试'));});
   document.addEventListener('keydown',e=>{if((e.key==='Enter'||e.key===' ')&&e.target.matches('.salary-chart-point')){e.preventDefault();e.target.dispatchEvent(new MouseEvent('click',{bubbles:true}));}});
-  document.addEventListener('pointerdown',e=>{const handle=e.target.closest('[data-drag-handle]');if(!handle)return;const row=handle.closest('[data-sort-id]');if(!row)return;beginSort(row,e);handle.setPointerCapture?.(e.pointerId);e.preventDefault();});
   document.addEventListener('pointermove',moveSort);
   document.addEventListener('pointerup',e=>{if(sortState&&e.pointerId===sortState.pointerId)finishSort();});
   document.addEventListener('pointercancel',()=>finishSort(true));
@@ -589,8 +606,8 @@
   document.addEventListener('pointermove',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;const dx=e.clientX-s.startX,dy=e.clientY-s.startY;if(!s.active){if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy))return;s.active=true;s.item.classList.add('is-swiping');document.querySelectorAll('.allocation-item.is-open,.goal-list-item.is-open').forEach(item=>{if(item!==s.item)item.classList.remove('is-open');});}s.item.querySelector('.allocation-row,.goal-swipe-content').style.transform=`translateX(${Math.max(-s.width,Math.min(0,s.offset+dx))}px)`;e.preventDefault();});
   document.addEventListener('pointerup',e=>{const s=swipeState;if(!s||e.pointerId!==s.pointerId)return;swipeState=null;if(!s.active)return;const dx=e.clientX-s.startX;s.item.querySelector('.allocation-row,.goal-swipe-content').style.transform='';s.item.classList.remove('is-swiping');s.item.classList.toggle('is-open',s.offset+dx<-Math.min(65,s.width/2));suppressSwipeClick=true;setTimeout(()=>{suppressSwipeClick=false;},250);});
   document.addEventListener('pointercancel',()=>{if(!swipeState)return;swipeState.item.querySelector('.allocation-row,.goal-swipe-content').style.transform='';swipeState.item.classList.remove('is-swiping');swipeState=null;});
-  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top,.menu-page-title');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item,.menu-page-item');if(!item)return;const hold={item,title,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold)return;swipeState=null;item.classList.remove('is-open','is-swiping');const content=item.querySelector('.allocation-row,.goal-swipe-content');if(content)content.style.transform='';beginSort(item,e);try{title.setPointerCapture(e.pointerId);}catch{}},380);});
-  document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId||sortState)return;if(Math.hypot(e.clientX-s.startX,e.clientY-s.startY)>8){clearTimeout(s.timer);longPressState=null;}});
+  document.addEventListener('pointerdown',e=>{const title=e.target.closest('.allocation-row-title,.goal-list-item .goal-top,.menu-page-title');if(!title)return;const item=title.closest('.allocation-item,.goal-list-item,.menu-page-item');if(!item||sortState)return;const hold={item,pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,lastX:e.clientX,lastY:e.clientY,timer:null};longPressState=hold;hold.timer=setTimeout(()=>{if(longPressState!==hold||!item.isConnected)return;longPressState=null;swipeState=null;item.classList.remove('is-open','is-swiping');const content=item.querySelector('.allocation-row,.goal-swipe-content');if(content)content.style.transform='';beginSort(item,{pointerId:hold.pointerId,clientX:hold.lastX,clientY:hold.lastY});},260);});
+  document.addEventListener('pointermove',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId||sortState)return;s.lastX=e.clientX;s.lastY=e.clientY;if(Math.hypot(e.clientX-s.startX,e.clientY-s.startY)>14){clearTimeout(s.timer);longPressState=null;}});
   document.addEventListener('pointerup',e=>{const s=longPressState;if(!s||e.pointerId!==s.pointerId)return;clearTimeout(s.timer);longPressState=null;});
   document.addEventListener('pointercancel',()=>{if(longPressState)clearTimeout(longPressState.timer);longPressState=null;});
   document.addEventListener('pointerdown',e=>{const sv=e.target.closest('[data-color-sv]');if(!sv)return;colorDrag={sv,form:sv.closest('form'),pointerId:e.pointerId};sv.setPointerCapture?.(e.pointerId);moveCategoryColor(e);});
@@ -623,8 +640,6 @@
       const task=state.tasks.find(t=>t.id===form.dataset.id), priority=['low','medium','high'].includes(data.priority)?data.priority:'medium';
       if(task){task.text=data.text.trim();task.deadline=deadline;task.priority=priority;}else state.tasks.push({id:uid(),text:data.text.trim(),deadline,priority,done:false});
       save();closeSheet();render();toast(task?'已保存':'已添加');
-    }else if(type==='rename'){
-      if(!data.name.trim()){formError('名称不能为空');return;}state.name=data.name.trim();save();closeSheet();render();
     }else if(type==='category'){
       if(!data.name.trim()||!/^#[0-9a-fA-F]{6}$/.test(data.color)){formError('请填写名称并选择颜色');return;}
       const id=form.dataset.id||'cat_'+uid();
@@ -640,7 +655,7 @@
     }else if(type==='login'){
       if(state.demo){formError('请先退出示例模式，再连接真实账户');return;}
       if(busy)return;busy=true;state.lastSyncAttempt=new Date().toISOString();save();const button=form.querySelector('[type="submit"]');button.disabled=true;button.textContent='正在登录并读取资产…';
-      try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';if(result.ok){state.remoteHistory=[];state.trendStatus='';state.trendShape='';}applySync(result);closeSheet();}
+      try{const result=await call('login',{phone:data.phone,password:data.password});form.querySelector('[name="password"]').value='';data.password='';if(result.ok){state.remoteHistory=[];state.trendStatus='';state.trendShape='';state.trendCode='';}applySync(result);closeSheet();}
       catch(err){formError(err.message);}
       finally{busy=false;if(button.isConnected){button.disabled=false;button.textContent='登录并同步资产';}render();}
     }
