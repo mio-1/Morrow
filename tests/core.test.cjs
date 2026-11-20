@@ -127,11 +127,24 @@ test('page content options migrate independently and preserve explicit off choic
 });
 test('asset blocks retain a unique order and migration keeps one current goal',()=>{
   const s=C.migrate({wealthOrder:['allocation','allocation','goals'],goals:[{id:'a',visible:false},{id:'b'}]});
-  assert.deepEqual(s.wealthOrder,['allocation','goals','summary']);
+  assert.deepEqual(s.wealthOrder,['allocation','goals','summary','salary']);
   assert.equal(s.goals[0].visible,false);
   assert.equal(s.goals[1].visible,true);
   const many=C.migrate({version:13,goals:[{id:'first',visible:true},{id:'second',visible:true}]});
   assert.deepEqual(many.goals.map(g=>g.visible),[true,false]);
+});
+test('annual salary retains twelve independent months and sums three income parts',()=>{
+  const s=C.migrate({salaryYears:[
+    {year:2024,months:Array(12).fill(10000),bonus:30000,dividend:20000},
+    {year:2025,months:[12000,13000,...Array(10).fill(null)],bonus:25000,dividend:5000},
+    {year:2026,months:[-1,...Array(11).fill(null)],bonus:0,dividend:0}
+  ]});
+  const rows=C.annualSalary(s);
+  assert.deepEqual(rows.map(row=>row.year),[2024,2025]);
+  assert.equal(rows[0].total,170000);
+  assert.equal(rows[1].monthlySalary,25000);
+  assert.equal(rows[1].months[2],null);
+  assert.equal(rows[1].total,55000);
 });
 
 test('asset categories migrate the old visibility switch to allocation statistics only',()=>{

@@ -138,7 +138,10 @@ public class MainActivity extends Activity {
                                     .put("password", Base64.encodeToString(password.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP));
                             JSONObject login = http("/auth/login", body, "");
                             JSONObject session = login.optJSONObject("data");
-                            if (session == null || session.optString("access_token").isEmpty()) throw new UserError("登录未成功，请核对手机号和密码。未自动重试。");
+                            if (session == null || session.optString("access_token").isEmpty()) {
+                                if (rateLimited(login)) throw new UserError("小青账提示请求频繁，请稍后再试");
+                                throw new UserError("登录未成功，请核对手机号和密码。未自动重试。");
+                            }
                             storeToken(session.getString("access_token"));
                             try { result = sync(); }
                             catch (Exception e) { result = error("登录成功，但资产同步尚未完成。请回首页重试同步。").put("connected",true); }
@@ -190,6 +193,7 @@ public class MainActivity extends Activity {
         if (token.isEmpty()) throw new UserError("请先登录小青账");
         JSONObject response = http("/bill/asset/list", null, token);
         if (!response.optBoolean("succ", false)) {
+            if (rateLimited(response)) throw new UserError("小青账提示请求频繁，请稍后再试");
             if (response.optString("code").contains("401")) {
                 getSharedPreferences("vault", MODE_PRIVATE).edit().clear().commit();
                 return error("登录已过期，请重新登录；上次同步的数据仍保留").put("expired", true);
@@ -218,6 +222,11 @@ public class MainActivity extends Activity {
             accounts.put(entry);
         }
         return ok().put("accounts", accounts).put("syncedAt",System.currentTimeMillis());
+    }
+
+    private boolean rateLimited(JSONObject response) {
+        return "CLOUD-ILLEGAL_REQUEST".equals(response.optString("code"))
+            && response.optString("msg").contains("频繁");
     }
 
     private JSONObject checkUpdate() throws Exception {

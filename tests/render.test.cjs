@@ -27,7 +27,7 @@ test('opening after twelve hours requests one automatic sync',async()=>{
   assert.equal(actions[0],'load');
 });
 
-test('asset and todo pages have independent visibility settings',async()=>{
+test('asset content stays visible while todo settings remain configurable',async()=>{
   const app={innerHTML:''}, overlay={innerHTML:''};
   global.window={HubCore:C,scrollTo(){}};
   global.document={body:{style:{}},getElementById(id){return id==='app'?app:overlay;},addEventListener(){}};
@@ -40,7 +40,7 @@ test('asset and todo pages have independent visibility settings',async()=>{
   assert.ok(app.innerHTML.includes('class="card overview-trend"'));
   assert.ok(!app.innerHTML.includes('data-action="open-trend"'));
   window.shiji.navigate('settings');
-  assert.ok(app.innerHTML.includes('data-action="page-settings" data-id="wealth"'));
+  assert.ok(!app.innerHTML.includes('data-action="page-settings" data-id="wealth"'));
   assert.ok(app.innerHTML.includes('data-action="page-settings" data-id="todos"'));
   assert.ok(app.innerHTML.includes('data-page="connections"'));
   assert.ok(!app.innerHTML.includes('data-action="login"'));
@@ -52,7 +52,8 @@ test('asset and todo pages have independent visibility settings',async()=>{
   assert.ok(app.innerHTML.includes('data-action="login"'));
   assert.ok(!app.innerHTML.includes('常用功能'));
   window.shiji.navigate('module-settings');
-  assert.ok(app.innerHTML.includes('data-module="wealth" data-option="goals"'));
+  assert.ok(app.innerHTML.includes('data-module="todos" data-option="completed"'));
+  assert.ok(!app.innerHTML.includes('data-module="wealth"'));
   window.shiji.navigate('wealth');
   assert.ok(app.innerHTML.includes('<h1>账户列表</h1>'));
   assert.ok(!app.innerHTML.includes('data-action="wealth-tab"'));
@@ -69,16 +70,18 @@ test('asset and todo pages have independent visibility settings',async()=>{
   s.goals=[{id:'g',name:'已达成',amount:1,scope:'all',deadline:'2030-01-01',createdDate:'2026-01-01',visible:false}];
   window.shiji.setState(s);
   window.shiji.navigate('home');
-  assert.ok(!app.innerHTML.includes('存钱目标'));
-  assert.ok(!app.innerHTML.includes('资产配置'));
-  assert.ok(!app.innerHTML.includes('资产趋势'));
+  assert.ok(app.innerHTML.includes('存钱目标'));
+  assert.ok(app.innerHTML.includes('资产配置'));
+  assert.ok(app.innerHTML.includes('资产趋势'));
+  assert.ok(!app.innerHTML.includes('资产页面设置'));
+  assert.ok(app.innerHTML.includes('data-action="open-accounts"'));
   window.shiji.navigate('wealth');
   assert.ok(!app.innerHTML.includes('class="card wealth-summary"'));
   assert.ok(!app.innerHTML.includes('data-action="wealth-tab"'));
   assert.ok(!app.innerHTML.includes('计入资产的变化'));
   window.shiji.navigate('allocation');
-  assert.ok(!app.innerHTML.includes('class="allocation-bottom"'));
-  assert.ok(!app.innerHTML.includes('class="progress"'));
+  assert.ok(app.innerHTML.includes('class="allocation-bottom"'));
+  assert.ok(app.innerHTML.includes('class="progress"'));
   window.shiji.navigate('goals');
   assert.ok(app.innerHTML.includes('data-sort-id="g"'));
   assert.ok(app.innerHTML.includes('data-action="set-current-goal"'));

@@ -456,6 +456,41 @@ button:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
 .sort-ghost { position:fixed !important; z-index:100 !important; pointer-events:none !important; margin:0 !important; opacity:.94; background:#fff; box-shadow:0 18px 45px #172b4d30 !important; transform:rotate(.4deg); }
 .sort-ghost.sortable-section { overflow:hidden; border-radius:18px; }
 .allocation-accounts { flex-wrap:wrap; overflow:visible; gap:7px; min-height:0; margin-top:14px; padding:11px 0 13px; }
+.allocation-progress-list { width:100%; max-width:280px; margin:16px auto 0; padding-top:13px; border-top:1px solid var(--line); display:grid; gap:12px; }
+.allocation-progress-row { min-width:0; }
+.allocation-progress-meta { display:flex; align-items:baseline; justify-content:space-between; gap:10px; min-width:0; }
+.allocation-progress-meta span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#4c5b70; font-size:11px; font-weight:650; }
+.allocation-progress-meta b { flex:none; color:#748197; font-size:10px; font-weight:600; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.allocation-progress-track { height:4px; margin-top:7px; overflow:hidden; border-radius:99px; background:#edf1f7; }
+.allocation-progress-track i { display:block; height:100%; border-radius:inherit; }
+.salary-add { display:grid; place-items:center; width:30px; height:30px; border-radius:10px; background:#edf3ff; color:#356bee; }
+.salary-add svg { width:16px; height:16px; }
+.salary-card { padding:17px 18px 15px; }
+.salary-years { display:grid; gap:17px; max-height:360px; overflow-y:auto; }
+.salary-year { display:block; width:100%; padding:0; text-align:left; }
+.salary-year-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.salary-year-head strong { font-size:12px; font-weight:700; color:#4c5b70; }
+.salary-year-head span { font-size:12px; font-weight:670; color:#253650; font-variant-numeric:tabular-nums; }
+.salary-track { height:8px; margin-top:9px; border-radius:99px; background:#eef1f7; overflow:hidden; }
+.salary-fill { display:flex; height:100%; overflow:hidden; border-radius:99px; }
+.salary-fill i { display:block; height:100%; }
+.salary-fill i:nth-child(1),.salary-legend span:nth-child(1) i { background:#356bee; }
+.salary-fill i:nth-child(2),.salary-legend span:nth-child(2) i { background:#8caef5; }
+.salary-fill i:nth-child(3),.salary-legend span:nth-child(3) i { background:#c1a4d6; }
+.salary-legend { display:flex; gap:17px; margin-top:18px; padding-top:13px; border-top:1px solid var(--line); color:#8a96a8; font-size:10px; }
+.salary-legend span { display:inline-flex; align-items:center; gap:5px; }
+.salary-legend i { display:block; width:7px; height:7px; border-radius:50%; }
+.salary-empty { padding:30px 0; text-align:center; font-size:12px; color:var(--muted); }
+.salary-dialog .sheet { max-height:calc(100dvh - 32px); overflow-y:auto; }
+.salary-form-label { margin:4px 0 11px; color:#5b6675; font-size:12px; }
+.salary-month-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; }
+.salary-month-field { min-width:0; padding:10px; border:1px solid #e9eef7; border-radius:12px; background:#f9fbfe; }
+.salary-month-field span { display:block; margin-bottom:6px; color:#708098; font-size:10px; }
+.salary-month-field input { width:100%; min-width:0; padding:0; border:0; outline:none; background:transparent; color:var(--ink); font-size:12px; font-variant-numeric:tabular-nums; }
+.salary-month-field input::placeholder { color:#c1c9d5; }
+.salary-extras { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:19px; }
+.salary-extras .form-field { min-width:0; }
+.salary-extras .form-field input { min-height:42px; padding:10px; }
 .allocation-account-chip { max-width:calc(100% - 34px); }
 .category-stats-control { display:flex; align-items:center; gap:7px; margin-left:auto; }
 .category-stats-control>span { font-size:10px; font-weight:650; color:#a27680; white-space:nowrap; }

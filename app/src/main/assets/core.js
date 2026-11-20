@@ -4,9 +4,9 @@
   else root.HubCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
   'use strict';
-  const SCHEMA = 14;
+  const SCHEMA = 15;
   const WEALTH_BLOCKS = [
-    {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}
+    {id:'summary',name:'资产概览'}, {id:'goals',name:'存钱目标'}, {id:'allocation',name:'资产配置'}, {id:'salary',name:'年工资趋势'}
   ];
   const MODULES = [
     { id: 'wealth', name: '资产统计', shortName: '资产', description: '账户余额与资产变化', icon: 'wallet', page: 'wealth', enabled: true },
@@ -43,7 +43,7 @@
     { id: 'other', name: '其他', color: '#8796ae' }
   ];
   function empty() {
-    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [],
+    return { version: SCHEMA, name: '拾集', assets: [], categoryMap: {}, categories: CATEGORIES.map(c => ({...c,statsEnabled:true})), wealthOrder:WEALTH_BLOCKS.map(b=>b.id), goals: [], tasks: [], history: [], salaryYears: [],
       allocationGoals: {},
       modules: MODULES.map(m => ({ id: m.id, enabled: m.enabled, visible: true })), pageOptions:defaultPageOptions(), accountSort:'amount-desc', lastSync: null, lastSyncAttempt:null, demo: false };
   }
@@ -51,6 +51,14 @@
     const s = Object.assign(empty(), value || {});
     if (!['amount-desc','amount-asc','original'].includes(s.accountSort)) s.accountSort='amount-desc';
     for (const k of ['assets', 'goals', 'tasks', 'history']) if (!Array.isArray(s[k])) s[k] = [];
+    const salaryByYear=new Map();
+    for(const row of Array.isArray(s.salaryYears)?s.salaryYears:[]){
+      const year=Number(row?.year),bonus=Number(row?.bonus),dividend=Number(row?.dividend);
+      const months=Array.isArray(row?.months)&&row.months.length===12?row.months.map(n=>n===null||n===''?null:Number(n)):null;
+      if(Number.isInteger(year)&&year>=1900&&year<=2100&&months&&months.every(n=>n===null||Number.isFinite(n)&&n>=0&&n<=1e12)&&[bonus,dividend].every(n=>Number.isFinite(n)&&n>=0&&n<=1e12))
+        salaryByYear.set(year,{year,months:months.map(n=>n===null?null:round(n)),bonus:round(bonus),dividend:round(dividend)});
+    }
+    s.salaryYears=[...salaryByYear.values()].sort((a,b)=>a.year-b.year);
     s.assets=s.assets.filter(a=>a&&typeof a==='object'&&!(a.source==='xiaoqing'&&Number(a.balance)===0));
     s.goals=s.goals.filter(g=>g&&typeof g==='object').map(g=>({...g,visible:g.visible!==false}));
     const currentGoal=s.goals.find(g=>g.visible!==false)||s.goals[0];
@@ -167,6 +175,12 @@
         progress: desired > 0 ? Math.max(0, Math.min(100, current / desired * 100)) : 0 });
     });
   }
+  function annualSalary(s) {
+    return (s.salaryYears||[]).map(row=>{
+      const monthlySalary=round(row.months.reduce((sum,n)=>sum+(n||0),0));
+      return {...row,monthlySalary,total:round(monthlySalary+row.bonus+row.dividend)};
+    }).sort((a,b)=>a.year-b.year);
+  }
   function categoryBasis(s) { return JSON.stringify(Object.entries(s.categoryMap).sort(([a],[b])=>a.localeCompare(b))); }
   function recordSnapshot(s, date = today()) {
     const t = totals(s), entry = { date, total: t.total, grossAssets:t.grossAssets, categories: t.categories, categoryBasis:categoryBasis(s) };
@@ -201,5 +215,5 @@
     return s;
   }
   return { SCHEMA, WEALTH_BLOCKS, MODULES, PAGE_OPTIONS, CATEGORIES, categories, empty, migrate, cents, round, included, category, totals, today, autoSyncDue, dateDay, taskUrgency,
-    goalValue, goalMetrics, allocation, recordSnapshot, monthChange, validateGoal, demo };
+    goalValue, goalMetrics, allocation, annualSalary, recordSnapshot, monthChange, validateGoal, demo };
 });
