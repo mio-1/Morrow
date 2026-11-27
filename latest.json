@@ -1,9 +1,9 @@
 {
-  "version": "0.2.2",
-  "versionCode": 65,
+  "version": "0.2.3",
+  "versionCode": 66,
   "package": "com.shiji.life",
   "minSdk": 26,
   "targetSdk": 35,
-  "sha256": "645cacae0a302e6fbc9baf5804766e6128de00b7d7f08c6c5c4cab35ce93753e",
+  "sha256": "0f9226ce25acf3477d74a8f619ce58241c7ea7407eb8bebfb44990de77f423b7",
   "bytes": 203062
 }
